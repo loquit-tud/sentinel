@@ -9,7 +9,7 @@ AI risk intelligence + wallet portfolio scanner for [Bags](https://bags.fm) trad
 [![Live Dashboard](https://img.shields.io/badge/Dashboard-Live-06b6d4?style=flat-square)](https://sentinel-dashboard-3uy.pages.dev)
 [![API](https://img.shields.io/badge/API-v0.14.0-22c55e?style=flat-square)](https://sentinel-api.apiworkersdev.workers.dev/health)
 [![CI](https://github.com/loquit-doru/sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/loquit-doru/sentinel/actions)
-[![DoraHacks](https://img.shields.io/badge/DoraHacks-BUIDL-purple?style=flat-square)](https://dorahacks.io/buidl/24038)
+[![Telegram](https://img.shields.io/badge/Telegram-@SentinelRiskAlerts-26A5E4?style=flat-square)](https://t.me/SentinelRiskAlerts)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?style=flat-square)](https://typescriptlang.org)
 
 ---
@@ -163,8 +163,9 @@ Each factor traces back to its source (RugCheck, Helius DAS, Birdeye, Bags) — 
 |---------|-----|
 | Dashboard | [sentinel-dashboard-3uy.pages.dev](https://sentinel-dashboard-3uy.pages.dev) |
 | API | [sentinel-api.apiworkersdev.workers.dev](https://sentinel-api.apiworkersdev.workers.dev/health) |
-| DoraHacks | [dorahacks.io/buidl/24038](https://dorahacks.io/buidl/24038) |
+| Telegram | [@SentinelRiskAlerts](https://t.me/SentinelRiskAlerts) |
 | $SENT Token | [bags.fm/token/Az1LWL...](https://bags.fm/token/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS) |
+| GitHub | [github.com/loquit-doru/sentinel](https://github.com/loquit-doru/sentinel) |
 
 ---
 
