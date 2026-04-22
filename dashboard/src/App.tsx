@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import type { TokenFeedItem } from '../../shared/types';
@@ -45,16 +45,11 @@ function SentinelLogo({ size = 28 }: { size?: number }) {
 
 type TabId = 'discover' | 'xray' | 'alerts' | 'token-launch';
 
-// CORE — the one Bags-native pillar. Always visible.
-const PRIMARY_TABS: { id: TabId; label: string }[] = [
-  { id: 'discover', label: 'Discovery' },
-];
-
-// SECONDARY — Bags-native tools + bonus utility. Hidden in "More".
-const MORE_TABS: { id: TabId; label: string }[] = [
-  { id: 'alerts',       label: '🎯 Bags Token Monitor' },
-  { id: 'token-launch', label: '🚀 Launch Guard' },
+const ALL_TABS: { id: TabId; label: string }[] = [
+  { id: 'discover',     label: 'Discovery' },
+  { id: 'alerts',       label: '🎯 Alerts' },
   { id: 'xray',         label: '🔍 Wallet X-Ray' },
+  { id: 'token-launch', label: '🚀 Launch Guard' },
 ];
 
 function NavTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -101,8 +96,7 @@ export function App() {
   const [tokens, setTokens] = useState<TokenFeedItem[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
   const [feedError, setFeedError] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const moreRef = useRef<HTMLDivElement>(null);
+
 
   const loadFeed = useCallback(() => {
     setFeedLoading(true);
@@ -124,17 +118,6 @@ export function App() {
     return () => clearInterval(id);
   }, [view.page, loadFeed]);
 
-  // Close "More" dropdown on outside click
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) {
-        setMoreOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, []);
-
   const handleSearch = (mint: string) => setView({ page: 'risk', mint });
   const goFeed     = () => setView({ page: 'feed' });
   const goXRay     = () => setView({ page: 'xray' });
@@ -143,9 +126,14 @@ export function App() {
   const goTokenLaunch = () => setView({ page: 'token-launch' });
 
   const tabGoHandlers: Record<TabId, () => void> = {
-    discover: goFeed, xray: goXRay, alerts: goAlerts,
-    'token-launch': goTokenLaunch,
+    discover: goFeed, xray: goXRay, alerts: goAlerts, 'token-launch': goTokenLaunch,
   };
+
+  const activeTab: TabId =
+    view.page === 'alerts' || view.page === 'creator' ? 'alerts'       :
+    view.page === 'xray'                              ? 'xray'         :
+    view.page === 'token-launch'                      ? 'token-launch' :
+    'discover';
 
   if (view.page === 'landing') return <LandingPage onLaunch={goFeed} onScanToken={handleSearch} />;
 
@@ -161,14 +149,6 @@ export function App() {
     );
   }
 
-  const activeTab: TabId =
-    view.page === 'alerts' || view.page === 'creator' ? 'alerts'        :
-    view.page === 'xray'                              ? 'xray'          :
-    view.page === 'token-launch'                      ? 'token-launch'  :
-    'discover';
-
-  const activeInMore = MORE_TABS.some(t => t.id === activeTab);
-
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header */}
@@ -178,47 +158,13 @@ export function App() {
           <h1 className="text-base font-bold leading-tight tracking-tight bg-gradient-to-r from-sentinel-accent via-cyan-300 to-sentinel-accent-2 bg-clip-text text-transparent">Sentinel</h1>
         </button>
 
-        {/* Primary nav pills — desktop */}
+        {/* Nav pills — desktop */}
         <nav className="hidden md:flex items-center gap-0.5 flex-1 justify-center min-w-0">
-          {PRIMARY_TABS.map(tab => (
+          {ALL_TABS.map(tab => (
             <NavTab key={tab.id} active={activeTab === tab.id} onClick={tabGoHandlers[tab.id]}>
               {tab.label}
             </NavTab>
           ))}
-
-          {/* More dropdown */}
-          <div className="relative" ref={moreRef}>
-            <button
-              onClick={() => setMoreOpen(o => !o)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all flex items-center gap-1 whitespace-nowrap ${
-                activeInMore
-                  ? 'bg-sentinel-accent/15 text-sentinel-accent border border-sentinel-accent/25'
-                  : 'text-gray-500 hover:text-gray-300 hover:bg-white/5 border border-transparent'
-              }`}
-            >
-              {activeInMore ? MORE_TABS.find(t => t.id === activeTab)?.label : 'More'}
-              <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" className={`transition-transform ${moreOpen ? 'rotate-180' : ''}`}>
-                <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-            {moreOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-48 bg-sentinel-surface border border-sentinel-border/60 rounded-xl shadow-xl shadow-black/40 py-1 z-30 animate-fade-in">
-                {MORE_TABS.map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => { tabGoHandlers[tab.id](); setMoreOpen(false); }}
-                    className={`w-full text-left px-4 py-2 text-sm transition-colors ${
-                      activeTab === tab.id
-                        ? 'text-sentinel-accent bg-sentinel-accent/8'
-                        : 'text-gray-400 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
         </nav>
 
         <div className="flex items-center gap-2 shrink-0">
@@ -234,9 +180,9 @@ export function App() {
         </div>
       </header>
 
-      {/* Mobile nav — horizontal scroll pills (core only; secondary hidden behind "More" desktop) */}
+      {/* Mobile nav */}
       <div className="md:hidden px-4 py-2 border-b border-sentinel-border/30 bg-sentinel-surface/10 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
-        {PRIMARY_TABS.map(tab => (
+        {ALL_TABS.map(tab => (
           <button
             key={tab.id}
             onClick={tabGoHandlers[tab.id]}
@@ -251,8 +197,8 @@ export function App() {
         ))}
       </div>
 
-      {/* Search (discovery only) */}
-      {activeTab === 'discover' && (
+      {/* Search bar */}
+      {view.page === 'feed' && (
         <div className="px-4 sm:px-6 py-4 flex justify-center border-b border-sentinel-border/30 bg-sentinel-surface/10">
           <SearchBar onSearch={handleSearch} />
         </div>
