@@ -69,14 +69,14 @@ Paste any Solana wallet → instant risk scan of ALL holdings. Portfolio health 
 Detect unclaimed creator fees, prioritize by risk urgency (critical/warning/safe), build unsigned claim transactions for wallet signing.
 
 #### 4. BagsSwarm Intelligence
-5-agent multi-agent system with BFT-inspired consensus:
-- **RiskAgent** — RugCheck + on-chain risk analysis
-- **VolumeAgent** — Birdeye volume/liquidity health
-- **SentimentAgent** — Social signal + holder distribution
-- **WhaleAgent** — Large holder concentration patterns
-- **CreatorAgent** — Creator track record + reputation
+5-agent wallet advisory system. Analyzes wallet activity (unclaimed fees + portfolio risk) and recommends optimal actions:
+- **fee-scanner** — Identify unclaimed fee positions and urgency
+- **risk-sentinel** — Portfolio-wide risk exposure assessment
+- **auto-claimer** — Claim optimization recommendations
+- **launch-advisor** — Creator profile trust evaluation
+- **trade-signal** — Token position exit signals
 
-Agents vote independently → 2/3 supermajority consensus → single verdict with confidence score.
+All 5 perspectives from a single Claude API call → majority (>50%) voting → single verdict with confidence score.
 
 #### 5. Partner Integration (Bags-native)
 Register as a Bags partner, query partner config + BPS allocation, claim partner fees. Full REST integration with Bags Partner API.
@@ -199,7 +199,7 @@ sentinel/
 │       ├── portfolio/scanner.ts → Wallet X-Ray (batch risk)
 │       ├── fees/                → Smart fees + Bags fee integration
 │       ├── trade/swap.ts        → Trade quotes via Bags
-│       ├── swarm/               → 5-agent BFT consensus engine
+│       ├── swarm/               → 5-agent majority-voting wallet advisor
 │       ├── partner/             → Bags partner REST integration
 │       ├── gate/                → $SENT token gating (Helius RPC)
 │       ├── app-store/           → App store metadata + fee-share config
@@ -209,17 +209,19 @@ sentinel/
 │       └── badge/               → SVG risk badge generator
 ├── dashboard/                   → React 18 + Vite + TailwindCSS
 │   └── src/pages/
-│       ├── RiskPage.tsx         → Risk scoring + discovery
-│       ├── XRayPage.tsx         → Wallet X-Ray
-│       ├── FeesPage.tsx         → Fee optimizer + claims
-│       ├── SwarmPage.tsx        → Multi-agent consensus
-│       ├── FirewallPage.tsx     → Autonomous firewall
-│       ├── InsurancePage.tsx    → Community insurance pool
-│       └── BagsNativePage.tsx   → Partner + token gate + app store
-├── mcp-server/                  → MCP Server (23 Claude tools)
-│       ├── notify/alert-subscriptions.ts → Telegram subscriber management
-│       ├── token/sent-stats.ts  → $SENT live fee stats
-│       └── watch/               → Pre-rug catcher cron loop
+│       ├── LandingPage.tsx      → Landing page
+│       ├── FeedPage.tsx         → Token discovery feed
+│       ├── RiskDetailPage.tsx   → Token risk detail
+│       ├── WalletXRayPage.tsx   → Wallet X-Ray
+│       ├── AlertFeedPage.tsx    → Risk alerts feed
+│       ├── CreatorProfilePage.tsx → Creator reputation profile
+│       ├── TokenLaunchPage.tsx  → Token launch
+│       └── ClaimPage.tsx        → Claims management
+├── mcp-server/                  → MCP Server (15 Claude tools)
+│   └── src/
+│       ├── tools.ts             → All 15 tool definitions
+│       ├── client.ts            → API client
+│       └── index.ts             → Server entry point
 └── shared/                      → TypeScript types + constants
 ```
 
@@ -246,9 +248,9 @@ sentinel/
 #### Swarm Intelligence
 | Method | Route | Purpose |
 |--------|-------|---------|
-| POST | `/v1/swarm/analyze` | Full 5-agent consensus analysis |
-| POST | `/v1/swarm/quick` | Fast 2-agent preliminary scan |
-| GET | `/v1/swarm/agents` | List available agents + descriptions |
+| POST | `/v1/swarm/:wallet` | Full 5-agent wallet advisory analysis |
+| GET | `/v1/swarm/:wallet` | Get current swarm state for wallet |
+| POST | `/v1/swarm/token/:mint` | Token-focused swarm analysis |
 
 #### Bags-Native Integration
 | Method | Route | Purpose |
@@ -327,7 +329,7 @@ Access tiers unlock premium features based on $SENT holdings — no subscription
 
 ## Claude Skills (MCP Server)
 
-Sentinel exposes **23 tools** via the [Model Context Protocol](https://modelcontextprotocol.io) for AI-native integration.
+Sentinel exposes **15 tools** via the [Model Context Protocol](https://modelcontextprotocol.io) for AI-native integration.
 
 ### Available Tools
 
@@ -340,10 +342,9 @@ Sentinel exposes **23 tools** via the [Model Context Protocol](https://modelcont
 | `compare_tokens` | Side-by-side risk comparison (2-5 tokens) |
 | `get_wallet_xray` | Portfolio health + flagged holdings |
 | `get_creator_profile` | Creator reputation + rug signals |
-| `get_swap_quote` | Trade quotes via Bags |
-| `run_swarm_analysis` | Full 5-agent consensus analysis |
-| `run_quick_scan` | Fast 2-agent scan |
-| `list_swarm_agents` | List available agents |
+| `get_trade_quote` | Trade quotes via Bags |
+| `run_swarm_analysis` | Full 5-agent wallet advisory analysis |
+| `get_alert_feed` | Recent risk alert catches feed |
 | `get_partner_config` | Bags partner status + fee stats |
 | `check_token_gate` | $SENT holding tier check |
 | `get_app_info` | App store metadata |

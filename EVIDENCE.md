@@ -136,7 +136,7 @@ The cron runs every 15 minutes via `wrangler.toml` `triggers.crons = ["*/15 * * 
 
 | Claim | Proof |
 |---|---|
-| 8-signal risk engine | [worker/src/risk/engine.ts](worker/src/risk/engine.ts) + 88 unit tests in `worker/test/` |
+| 8-signal risk engine | [worker/src/risk/engine.ts](worker/src/risk/engine.ts) + 102 unit tests in `worker/test/` |
 | **32-min avg lead time on live catch** | Section 5 above — `jkGKKj3Min…BAGS` mint, Apr 22 2026 |
 | Cron scanner every 15 min | [wrangler.toml](worker/wrangler.toml) `triggers.crons = ["*/15 * * * *"]` |
 | Multi-source data (no single point of failure) | 4 sources (RugCheck, Helius, Birdeye, Bags) in parallel `Promise.all` |
