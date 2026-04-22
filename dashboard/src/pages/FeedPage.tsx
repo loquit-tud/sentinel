@@ -50,7 +50,7 @@ function TokenRow({ token, onSelect, index }: { token: TokenFeedItem; onSelect: 
   return (
     <button
       onClick={() => onSelect(token.mint)}
-      className="w-full flex items-center gap-4 px-4 py-3 hover:bg-sentinel-surface/40 hover:ring-1 hover:ring-sentinel-accent/20 rounded-lg transition-all text-left group cursor-pointer animate-fade-in"
+      className="w-full flex items-center gap-4 px-4 py-3 hover:bg-white/[0.03] hover:translate-x-0.5 rounded-lg transition-all duration-200 text-left group cursor-pointer animate-fade-in"
       style={{ animationDelay: `${index * 20}ms` }}
     >
       {/* Rank */}
@@ -67,25 +67,25 @@ function TokenRow({ token, onSelect, index }: { token: TokenFeedItem; onSelect: 
 
       {/* Name + Symbol */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-white truncate group-hover:text-sentinel-accent transition-colors">{token.name}</p>
+        <p className="text-sm font-semibold text-slate-100 truncate group-hover:text-sentinel-accent transition-colors">{token.name}</p>
         <p className="text-xs text-gray-500">${token.symbol}</p>
       </div>
 
       {/* Volume */}
       <div className="text-right hidden sm:block w-20">
-        <p className="text-sm font-mono text-gray-300">{formatUsd(token.volume24h)}</p>
+        <p className="text-sm font-medium text-slate-200 tabular-nums">{formatUsd(token.volume24h)}</p>
         <p className="text-[10px] text-gray-600">vol 24h</p>
       </div>
 
       {/* FDV */}
       <div className="text-right hidden md:block w-20">
-        <p className="text-sm font-mono text-gray-300">{formatUsd(token.fdv)}</p>
+        <p className="text-sm font-medium text-slate-200 tabular-nums">{formatUsd(token.fdv)}</p>
         <p className="text-[10px] text-gray-600">FDV</p>
       </div>
 
       {/* Change */}
       <div className="text-right w-16">
-        <p className={`text-sm font-mono font-medium ${token.priceChangePct24h >= 0 ? 'text-sentinel-safe' : 'text-sentinel-danger'}`}>
+        <p className={`text-sm font-semibold tabular-nums ${token.priceChangePct24h >= 0 ? 'text-sentinel-safe' : 'text-sentinel-danger'}`}>
           {token.priceChangePct24h >= 0 ? '+' : ''}{token.priceChangePct24h.toFixed(1)}%
         </p>
       </div>
@@ -103,17 +103,17 @@ function TokenRow({ token, onSelect, index }: { token: TokenFeedItem; onSelect: 
   );
 }
 
-const RISK_CELL_COLORS: Record<NonNullable<TokenFeedItem['riskTier']>, { text: string; bg: string; border: string; dot: string }> = {
-  safe:    { text: 'text-sentinel-safe',    bg: 'bg-sentinel-safe/10',    border: 'border-sentinel-safe/30',    dot: 'bg-sentinel-safe' },
-  caution: { text: 'text-sentinel-caution', bg: 'bg-sentinel-caution/10', border: 'border-sentinel-caution/30', dot: 'bg-sentinel-caution' },
-  danger:  { text: 'text-sentinel-danger',  bg: 'bg-sentinel-danger/10',  border: 'border-sentinel-danger/30',  dot: 'bg-sentinel-danger' },
-  rug:     { text: 'text-sentinel-rug',     bg: 'bg-sentinel-rug/15',     border: 'border-sentinel-rug/40',     dot: 'bg-sentinel-rug' },
+const RISK_CELL_COLORS: Record<NonNullable<TokenFeedItem['riskTier']>, { text: string; bg: string; border: string; dot: string; glow: string }> = {
+  safe:    { text: 'text-emerald-300',  bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', dot: 'bg-emerald-400', glow: '' },
+  caution: { text: 'text-amber-300',    bg: 'bg-amber-500/10',   border: 'border-amber-500/20',   dot: 'bg-amber-400',   glow: '' },
+  danger:  { text: 'text-rose-300',     bg: 'bg-rose-500/10',    border: 'border-rose-500/30',    dot: 'bg-rose-400',    glow: 'shadow-[0_0_10px_rgba(244,63,94,0.15)]' },
+  rug:     { text: 'text-red-400',      bg: 'bg-red-600/15',     border: 'border-red-600/40',     dot: 'bg-red-500',     glow: 'shadow-[0_0_14px_rgba(220,38,38,0.25)]' },
 };
 
 function RiskCell({ score, tier }: { score: number; tier: NonNullable<TokenFeedItem['riskTier']> }) {
   const c = RISK_CELL_COLORS[tier];
   return (
-    <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md border ${c.bg} ${c.border}`}>
+    <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md border ${c.bg} ${c.border} ${c.glow}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
       <span className={`text-sm font-mono font-semibold tabular-nums ${c.text}`}>{score}</span>
       <span className={`text-[9px] uppercase tracking-wider font-semibold ${c.text} opacity-70`}>{tier}</span>
@@ -222,7 +222,7 @@ export function FeedPage({ tokens, loading, onSelectToken }: {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="rounded-2xl border border-white/[0.06] bg-slate-950/25 backdrop-blur-sm p-4 space-y-4">
       {/* Toolbar */}
       <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
         {/* Sort */}
@@ -267,7 +267,7 @@ export function FeedPage({ tokens, loading, onSelectToken }: {
       </div>
 
       {/* Table header */}
-      <div className="flex items-center px-4 py-2 text-[10px] text-gray-600 uppercase tracking-widest border-b border-sentinel-border/50">
+      <div className="sticky top-0 z-10 flex items-center px-4 py-2 text-[10px] text-gray-600 uppercase tracking-widest border-b border-white/5 bg-slate-950/80 backdrop-blur">
         <div className="w-5 text-right mr-4">#</div>
         <div className="w-9 shrink-0" />
         <div className="flex-1 ml-4">Token</div>
@@ -283,9 +283,11 @@ export function FeedPage({ tokens, loading, onSelectToken }: {
           No tokens match your filters.
         </div>
       ) : (
-        filtered.map((t, i) => (
-          <TokenRow key={t.mint} token={t} onSelect={onSelectToken} index={i} />
-        ))
+        <div className="divide-y divide-white/[0.025]">
+          {filtered.map((t, i) => (
+            <TokenRow key={t.mint} token={t} onSelect={onSelectToken} index={i} />
+          ))}
+        </div>
       )}
     </div>
   );

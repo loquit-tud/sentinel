@@ -383,7 +383,7 @@ function HeroSearch({ onScanToken }: { onScanToken: (mint: string) => void }) {
 
   return (
     <div className="max-w-xl mx-auto w-full">
-      <div className="flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-3 shadow-lg shadow-cyan-500/5 backdrop-blur-md focus-within:border-cyan-500/40 focus-within:shadow-cyan-500/10 transition-all">
+      <div className="flex items-center gap-2 rounded-2xl border border-cyan-500/20 bg-slate-900/80 px-5 py-3.5 shadow-[0_0_40px_rgba(6,182,212,0.12)] backdrop-blur-md focus-within:border-cyan-500/40 focus-within:shadow-[0_0_60px_rgba(6,182,212,0.20)] transition-all">
         <span className="text-cyan-400 text-sm font-mono shrink-0 select-none">sentinel.scan</span>
         <span className="text-slate-600 text-sm shrink-0">›</span>
         <input
@@ -396,7 +396,7 @@ function HeroSearch({ onScanToken }: { onScanToken: (mint: string) => void }) {
         />
         <button
           onClick={submit}
-          className="shrink-0 text-sm px-4 py-1.5 rounded-lg bg-cyan-500 text-black font-semibold hover:bg-cyan-400 transition-colors"
+          className="shrink-0 text-sm px-4 py-1.5 rounded-lg bg-cyan-500 text-slate-950 font-semibold hover:bg-cyan-400 transition-all shadow-md shadow-cyan-500/25 hover:shadow-cyan-500/35 active:scale-95"
         >
           analyze
         </button>
@@ -424,10 +424,13 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
   return (
     <div className="min-h-screen flex flex-col">
       {/* Nav */}
-      <nav className="px-6 py-4 flex items-center justify-between border-b border-slate-800/50 backdrop-blur-sm bg-slate-950/90 sticky top-0 z-10">
+      <nav className="px-6 py-3 flex items-center justify-between border-b border-white/5 backdrop-blur-xl bg-slate-950/70 sticky top-0 z-10">
         <div className="flex items-center gap-3">
-          <SentinelLogo size={32} />
-          <span className="text-lg font-bold tracking-tight">Sentinel</span>
+          <SentinelLogo size={28} />
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-base font-bold tracking-tight">Sentinel</span>
+            <span className="text-[10px] text-cyan-400 font-medium tracking-wider hidden sm:inline">AI Risk Engine</span>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           <a
@@ -448,7 +451,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
           </a>
           <button
             onClick={onLaunch}
-            className="bg-cyan-500 hover:bg-cyan-400 text-black text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+            className="bg-gradient-to-r from-violet-600 to-cyan-500 hover:from-violet-500 hover:to-cyan-400 text-white text-sm font-semibold px-4 py-2 rounded-xl shadow-lg shadow-cyan-500/20 transition-all"
           >
             Launch App
           </button>
@@ -457,6 +460,9 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
 
       {/* Hero */}
       <section className="flex-1 flex flex-col items-center justify-center px-6 py-20 sm:py-32 text-center relative overflow-hidden">
+        {/* Radial gradient layers */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(6,182,212,0.10),transparent_50%)] pointer-events-none" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,rgba(168,85,247,0.06),transparent_40%)] pointer-events-none" />
         {/* Dramatic glow orbs */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-cyan-500/5 rounded-full blur-[120px] pointer-events-none" />
         <div className="absolute top-1/4 right-1/4 w-[350px] h-[350px] bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none" />
@@ -495,16 +501,16 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
             {stats.loading ? (
               <div className="h-8 w-16 mx-auto rounded-md bg-slate-800/60 animate-pulse" />
             ) : (
-              <div className="text-2xl font-bold text-white">{stats.tokensTracked}</div>
+              <div className="text-2xl font-bold text-white tabular-nums">{stats.tokensTracked}</div>
             )}
             <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1.5">Tokens Tracked</div>
           </div>
           {/* ONE glowing metric — the heartbeat */}
-          <div className="rounded-xl border border-cyan-500/20 bg-slate-900/40 p-4 text-center">
+          <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4 text-center shadow-[0_0_24px_rgba(6,182,212,0.10)]">
             {stats.loading ? (
               <div className="h-8 w-16 mx-auto rounded-md bg-slate-800/60 animate-pulse" />
             ) : (
-              <div className="text-2xl font-bold text-cyan-400 drop-shadow-[0_0_12px_rgba(6,182,212,0.5)]">{stats.riskScans.toLocaleString()}</div>
+              <div className="text-2xl font-bold text-cyan-400 tabular-nums drop-shadow-[0_0_12px_rgba(6,182,212,0.5)]">{stats.riskScans.toLocaleString()}</div>
             )}
             <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1.5">Risk Scans</div>
           </div>
@@ -512,7 +518,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
             {stats.loading ? (
               <div className="h-8 w-16 mx-auto rounded-md bg-slate-800/60 animate-pulse" />
             ) : (
-              <div className="text-2xl font-bold text-white">{stats.totalApiCalls.toLocaleString()}</div>
+              <div className="text-2xl font-bold text-white tabular-nums">{stats.totalApiCalls.toLocaleString()}</div>
             )}
             <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1.5">API Calls</div>
           </div>
