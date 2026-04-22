@@ -315,7 +315,7 @@ function SwarmDemoCard({ mint }: { mint: string }) {
             <span className="text-xl">🤖</span>
             <h3 className="text-white font-semibold text-sm tracking-tight">BagsSwarm AI Consensus</h3>
           </div>
-          <p className="text-[11px] text-gray-500">5 agents · BFT voting · DexScreener-enriched</p>
+          <p className="text-[11px] text-gray-500">5 agents · majority voting · DexScreener-enriched</p>
         </div>
         <button
           onClick={run}
@@ -516,7 +516,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
           <div className="text-center mb-10 max-w-2xl mx-auto">
             <h2 className="text-2xl sm:text-3xl font-bold">Two things no other Bags tool does</h2>
             <p className="text-gray-400 mt-3 text-sm">
-              Both running <span className="text-sentinel-accent">live right now</span>, without human input.
+              One runs on-demand. One runs <span className="text-sentinel-accent">24/7 without human input</span>.
             </p>
           </div>
 
