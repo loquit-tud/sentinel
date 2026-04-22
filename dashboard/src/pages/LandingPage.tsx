@@ -68,7 +68,7 @@ function StatBox({ value, label, loading = false }: { value: string; label: stri
   return (
     <div className="text-center px-4 sm:px-8">
       {loading ? (
-        <div className="h-9 sm:h-10 w-20 mx-auto rounded-md bg-gradient-to-r from-sentinel-border/30 via-sentinel-border/60 to-sentinel-border/30 bg-[length:200%_100%] animate-shimmer" />
+        <div className="h-9 sm:h-10 w-20 mx-auto rounded-md bg-gradient-to-r from-slate-800/30 via-slate-700/60 to-slate-800/30 bg-[length:200%_100%] animate-shimmer" />
       ) : (
         <p className="text-3xl sm:text-4xl font-black text-white tabular-nums">{value}</p>
       )}
@@ -98,15 +98,15 @@ function SentFeeStatsWidget() {
   const { data, loading } = useSentFeeStats();
 
   return (
-    <section className="px-6 py-14 border-t border-sentinel-border/30 bg-gradient-to-b from-cyan-950/10 via-transparent to-transparent">
+    <section className="px-6 py-14 border-t border-slate-800/50 bg-gradient-to-b from-cyan-950/10 via-transparent to-transparent">
       <div className="max-w-3xl mx-auto">
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-cyan-500/20 bg-cyan-500/5 text-[10px] font-semibold text-cyan-400 tracking-wider uppercase mb-3">
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
             Live · updated every 5 min
           </div>
-          <h2 className="text-2xl sm:text-3xl font-bold">$SENT earns you fees</h2>
-          <p className="text-gray-400 mt-3 text-sm max-w-md mx-auto">
+          <h2 className="text-2xl sm:text-3xl font-bold text-white">$SENT earns you fees</h2>
+          <p className="text-slate-400 mt-3 text-sm max-w-md mx-auto">
             Every trade on $SENT generates a 1% Bags fee. 30% of that goes directly to $SENT holders.
             Hold any amount to start earning.
           </p>
@@ -115,32 +115,32 @@ function SentFeeStatsWidget() {
         {loading ? (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-20 rounded-xl border border-sentinel-border/30 bg-sentinel-surface/30 animate-pulse" />
+              <div key={i} className="h-20 rounded-xl border border-slate-800/50 bg-slate-900/40 animate-pulse" />
             ))}
           </div>
         ) : data ? (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-              <div className="p-4 rounded-xl border border-sentinel-border/40 bg-sentinel-surface/30 text-center">
+              <div className="p-4 rounded-xl border border-slate-800/60 bg-slate-900/40 text-center">
                 <div className="text-xl font-bold text-white">{fmt(data.volume24hUsd, 0)}</div>
-                <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-1">24h Volume</div>
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1">24h Volume</div>
               </div>
               <div className="p-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 text-center">
                 <div className="text-xl font-bold text-cyan-400">{fmt(data.holdersShareDaily)}</div>
-                <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-1">Holders share / day</div>
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1">Holders share / day</div>
               </div>
-              <div className="p-4 rounded-xl border border-sentinel-border/40 bg-sentinel-surface/30 text-center">
+              <div className="p-4 rounded-xl border border-slate-800/60 bg-slate-900/40 text-center">
                 <div className="text-xl font-bold text-white">{data.holderCount.toLocaleString()}</div>
-                <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-1">$SENT holders</div>
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1">$SENT holders</div>
               </div>
               <div className="p-4 rounded-xl border border-green-500/20 bg-green-500/5 text-center">
                 <div className="text-xl font-bold text-green-400">{fmt(data.estimatedDailyPerHolder, 4)}</div>
-                <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-1">Est. daily / holder</div>
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1">Est. daily / holder</div>
               </div>
             </div>
 
-            <div className="p-4 rounded-xl border border-sentinel-border/40 bg-sentinel-surface/20 flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="text-sm text-gray-400 text-center sm:text-left">
+            <div className="p-4 rounded-xl border border-slate-800/60 bg-slate-900/30 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="text-sm text-slate-400 text-center sm:text-left">
                 <span className="text-white font-semibold">{data.feeRatePct}% Bags fee</span>
                 {' · '}
                 <span className="text-cyan-400 font-semibold">{data.holderSharePct}%</span> goes to holders
@@ -152,20 +152,20 @@ function SentFeeStatsWidget() {
                 href={`https://bags.fm/token/${SENT_MINT}`}
                 target="_blank"
                 rel="noopener"
-                className="text-xs font-semibold px-4 py-2 rounded-lg bg-cyan-500/15 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/25 transition-all whitespace-nowrap"
+                className="text-xs font-semibold px-4 py-2 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 hover:border-cyan-500/30 transition-all whitespace-nowrap"
               >
                 Buy $SENT on Bags ↗
               </a>
             </div>
           </>
         ) : (
-          <div className="text-center text-sm text-gray-600 py-6">
+          <div className="text-center text-sm text-slate-600 py-6">
             Stats temporarily unavailable —{' '}
             <a
               href={`https://bags.fm/token/${SENT_MINT}`}
               target="_blank"
               rel="noopener"
-              className="text-sentinel-accent hover:underline"
+              className="text-cyan-400 hover:underline"
             >
               view $SENT on Bags ↗
             </a>
@@ -214,70 +214,70 @@ function PreRugCatchesBanner() {
   const hasCatches = data.catches.length > 0;
 
   return (
-    <section className="px-6 py-14 border-t border-sentinel-border/30 bg-gradient-to-b from-red-950/10 via-transparent to-transparent">
+    <section className="px-6 py-14 border-t border-slate-800/50 bg-gradient-to-b from-red-950/10 via-transparent to-transparent">
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-8 max-w-2xl mx-auto">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-red-500/20 bg-red-500/5 text-[10px] font-semibold text-red-400 tracking-wider uppercase mb-3">
             <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
             Evidence chain
           </div>
-          <h2 className="text-2xl sm:text-3xl font-bold">Pre-rug catches · live</h2>
-          <p className="text-gray-400 mt-3 text-sm">
+          <h2 className="text-2xl sm:text-3xl font-bold text-white">Pre-rug catches · live</h2>
+          <p className="text-slate-400 mt-3 text-sm">
             Every 15 minutes, our cron scans the top 100 Bags tokens and records the first moment a score
             collapses ≥40 points or crashes into danger/rug tier. This is not a claim — it's a log.
           </p>
         </div>
 
         <div className="grid grid-cols-3 gap-3 mb-6 text-center">
-          <div className="p-3 rounded-lg border border-sentinel-border/40 bg-sentinel-surface/30">
+          <div className="p-3 rounded-lg border border-slate-800/60 bg-slate-900/40">
             <div className="text-xl font-bold text-white">{data.stats.tokensWatched || 50}</div>
-            <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">Tokens watched</div>
+            <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">Tokens watched</div>
           </div>
-          <div className="p-3 rounded-lg border border-sentinel-border/40 bg-sentinel-surface/30">
+          <div className="p-3 rounded-lg border border-slate-800/60 bg-slate-900/40">
             <div className="text-xl font-bold text-white">{data.stats.catches}</div>
-            <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">Catches to date</div>
+            <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">Catches to date</div>
           </div>
-          <div className="p-3 rounded-lg border border-sentinel-border/40 bg-sentinel-surface/30">
+          <div className="p-3 rounded-lg border border-slate-800/60 bg-slate-900/40">
             <div className="text-xl font-bold text-white">{formatLeadTime(data.stats.avgLeadTimeMs)}</div>
-            <div className="text-[10px] text-gray-500 uppercase tracking-wider mt-0.5">Avg lead time</div>
+            <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">Avg lead time</div>
           </div>
         </div>
 
         {!hasCatches ? (
-          <div className="p-5 rounded-xl border border-sentinel-border/40 bg-sentinel-surface/30 text-center">
-            <p className="text-sm text-gray-400">
+          <div className="p-5 rounded-xl border border-slate-800/60 bg-slate-900/40 text-center">
+            <p className="text-sm text-slate-400">
               <span className="text-green-400 font-medium">No catches yet.</span> The watcher is running —
               catches will appear here when a tracked token's score collapses.
             </p>
-            <p className="text-[11px] text-gray-600 mt-2">
-              Raw feed: <a href="https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches" target="_blank" rel="noopener" className="text-sentinel-accent hover:underline">GET /v1/watch/catches</a>
+            <p className="text-[11px] text-slate-600 mt-2">
+              Raw feed: <a href="https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches" target="_blank" rel="noopener" className="text-cyan-400 hover:underline">GET /v1/watch/catches</a>
             </p>
           </div>
         ) : (
           <div className="space-y-2">
             {data.catches.map((c) => (
-              <div key={c.mint + c.caughtAt} className="p-3.5 rounded-lg border border-sentinel-border/40 bg-sentinel-surface/30 flex items-center gap-3 text-sm">
+              <div key={c.mint + c.caughtAt} className="p-3.5 rounded-lg border border-slate-800/60 bg-slate-900/40 flex items-center gap-3 text-sm">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-white truncate">{c.symbol || c.mint.slice(0, 6)}</span>
-                    <span className="text-[10px] font-mono text-gray-600 truncate">{c.mint.slice(0, 4)}…{c.mint.slice(-4)}</span>
+                    <span className="text-[10px] font-mono text-slate-600 truncate">{c.mint.slice(0, 4)}…{c.mint.slice(-4)}</span>
                   </div>
-                  <div className="text-[11px] text-gray-500 mt-0.5">
+                  <div className="text-[11px] text-slate-500 mt-0.5">
                     Flagged {formatLeadTime(Date.now() - c.caughtAt)} ago · first seen {formatLeadTime(Date.now() - c.initialAt)} ago
                   </div>
                 </div>
                 <div className="text-right shrink-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] text-gray-500 line-through">{c.initialScore}</span>
-                    <span className="text-[11px] text-gray-600">→</span>
+                    <span className="text-[11px] text-slate-500 line-through">{c.initialScore}</span>
+                    <span className="text-[11px] text-slate-600">→</span>
                     <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${tierBadgeClass(c.caughtTier)}`}>{c.caughtScore}</span>
                   </div>
                   <div className="text-[10px] text-red-400 mt-0.5">−{c.scoreDrop} pts</div>
                 </div>
               </div>
             ))}
-            <p className="text-center text-[11px] text-gray-600 mt-3">
-              Full list: <a href="https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=100" target="_blank" rel="noopener" className="text-sentinel-accent hover:underline">GET /v1/watch/catches?limit=100</a>
+            <p className="text-center text-[11px] text-slate-600 mt-3">
+              Full list: <a href="https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=100" target="_blank" rel="noopener" className="text-cyan-400 hover:underline">GET /v1/watch/catches?limit=100</a>
             </p>
           </div>
         )}
@@ -308,19 +308,19 @@ function SwarmDemoCard({ mint }: { mint: string }) {
   };
 
   return (
-    <div className="bg-gradient-to-br from-sentinel-surface/80 to-sentinel-surface/40 rounded-xl p-5 border border-sentinel-border/50">
+    <div className="bg-gradient-to-br from-slate-900/80 to-slate-900/40 rounded-xl p-5 border border-slate-800/50">
       <div className="flex items-start justify-between mb-3 gap-3">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xl">🤖</span>
             <h3 className="text-white font-semibold text-sm tracking-tight">BagsSwarm AI Consensus</h3>
           </div>
-          <p className="text-[11px] text-gray-500">5 agents · majority voting · DexScreener-enriched</p>
+          <p className="text-[11px] text-slate-500">5 agents · majority voting · DexScreener-enriched</p>
         </div>
         <button
           onClick={run}
           disabled={loading}
-          className="text-[11px] font-medium px-3 py-1.5 rounded-lg bg-sentinel-accent/15 text-sentinel-accent border border-sentinel-accent/30 hover:bg-sentinel-accent/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all whitespace-nowrap"
+          className="text-[11px] font-medium px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 hover:border-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all whitespace-nowrap"
         >
           {loading ? 'Voting…' : data ? 'Re-run' : 'Run live'}
         </button>
@@ -329,25 +329,25 @@ function SwarmDemoCard({ mint }: { mint: string }) {
       {error && <p className="text-[11px] text-rose-400 mt-2">{error}</p>}
 
       {!data && !loading && !error && (
-        <div className="text-[11px] text-gray-600 italic mt-2">
+        <div className="text-[11px] text-slate-600 italic mt-2">
           Click "Run live" — 5 specialized agents analyze the token and vote on a verdict.
         </div>
       )}
 
       {loading && (
-        <div className="flex items-center gap-2 text-[11px] text-gray-500 mt-2">
-          <span className="w-1.5 h-1.5 bg-sentinel-accent rounded-full animate-pulse" />
+        <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-2">
+          <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse" />
           Risk · Volume · Sentiment · Whale · Creator agents voting…
         </div>
       )}
 
       {data && (
         <div className="mt-3 space-y-3 animate-fade-in">
-          <p className="text-[12px] text-gray-300 leading-relaxed line-clamp-4">{data.summary}</p>
+          <p className="text-[12px] text-slate-300 leading-relaxed line-clamp-4">{data.summary}</p>
 
           <div className="flex flex-wrap gap-1.5">
             {data.agentStatuses.slice(0, 5).map((a) => (
-              <div key={a.agentId} className="bg-black/30 rounded-md px-2 py-1 border border-sentinel-border/30 min-w-[90px]">
+              <div key={a.agentId} className="bg-black/30 rounded-md px-2 py-1 border border-slate-800/50 min-w-[90px]">
                 <p className="text-[10px] text-gray-400 truncate">{a.name}</p>
                 <p className="text-[10px] text-gray-600 truncate">
                   {a.status} · {a.voteCount} vote{a.voteCount === 1 ? '' : 's'}
@@ -382,29 +382,31 @@ function HeroSearch({ onScanToken }: { onScanToken: (mint: string) => void }) {
   };
 
   return (
-    <div className="max-w-md mx-auto w-full">
-      <div className="flex gap-2">
+    <div className="max-w-xl mx-auto w-full">
+      <div className="flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-3 shadow-lg shadow-cyan-500/5 backdrop-blur-md focus-within:border-cyan-500/40 focus-within:shadow-cyan-500/10 transition-all">
+        <span className="text-cyan-400 text-sm font-mono shrink-0 select-none">sentinel.scan</span>
+        <span className="text-slate-600 text-sm shrink-0">›</span>
         <input
           type="text"
           value={value}
           onChange={(e) => { setValue(e.target.value); setError(null); }}
           onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
-          placeholder="Paste any Solana mint…"
-          className="flex-1 bg-sentinel-surface/80 border border-sentinel-border/60 rounded-xl px-4 py-3 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-sentinel-accent/50 transition-colors"
+          placeholder="paste token address..."
+          className="flex-1 bg-transparent outline-none text-white text-sm placeholder:text-slate-600"
         />
         <button
           onClick={submit}
-          className="bg-sentinel-accent hover:bg-sentinel-accent-dim text-white font-semibold px-5 py-3 rounded-xl text-sm transition-all hover:shadow-lg hover:shadow-sentinel-accent/25"
+          className="shrink-0 text-sm px-4 py-1.5 rounded-lg bg-cyan-500 text-black font-semibold hover:bg-cyan-400 transition-colors"
         >
-          Score →
+          analyze
         </button>
       </div>
-      {error && <p className="text-[11px] text-rose-400 mt-2 text-left">{error}</p>}
-      <p className="text-[11px] text-gray-600 mt-2 text-left">
-        Or try{' '}
+      {error && <p className="text-[11px] text-rose-400 mt-2 text-left px-1">{error}</p>}
+      <p className="text-[11px] text-slate-600 mt-2 text-left px-1">
+        or try{' '}
         <button
           onClick={() => onScanToken(SENT_MINT)}
-          className="text-sentinel-accent hover:underline font-medium"
+          className="text-cyan-500/70 hover:text-cyan-400 font-medium transition-colors"
         >
           $SENT
         </button>{' '}
@@ -422,7 +424,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
   return (
     <div className="min-h-screen flex flex-col">
       {/* Nav */}
-      <nav className="px-6 py-4 flex items-center justify-between border-b border-sentinel-border/30 backdrop-blur-sm bg-sentinel-bg/90 sticky top-0 z-10">
+      <nav className="px-6 py-4 flex items-center justify-between border-b border-slate-800/50 backdrop-blur-sm bg-slate-950/90 sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <SentinelLogo size={32} />
           <span className="text-lg font-bold tracking-tight">Sentinel</span>
@@ -432,7 +434,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
             href="https://github.com/loquit-doru/sentinel"
             target="_blank"
             rel="noopener"
-            className="text-xs text-gray-500 hover:text-sentinel-accent transition-colors hidden sm:inline"
+            className="text-xs text-slate-500 hover:text-cyan-400 transition-colors hidden sm:inline"
           >
             GitHub ↗
           </a>
@@ -440,13 +442,13 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
             href="https://bags.fm"
             target="_blank"
             rel="noopener"
-            className="text-xs text-gray-500 hover:text-sentinel-accent transition-colors hidden sm:inline"
+            className="text-xs text-slate-500 hover:text-cyan-400 transition-colors hidden sm:inline"
           >
             bags.fm ↗
           </a>
           <button
             onClick={onLaunch}
-            className="bg-sentinel-accent hover:bg-sentinel-accent-dim text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            className="bg-cyan-500 hover:bg-cyan-400 text-black text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
           >
             Launch App
           </button>
@@ -454,82 +456,94 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
       </nav>
 
       {/* Hero */}
-      <section className="flex-1 flex flex-col items-center justify-center px-6 py-16 sm:py-24 text-center relative overflow-hidden">
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[320px] h-[320px] bg-cyan-500/8 rounded-full blur-[80px] pointer-events-none" />
-        <div className="absolute top-2/3 left-1/3 w-[200px] h-[200px] bg-indigo-500/6 rounded-full blur-[60px] pointer-events-none" />
+      <section className="flex-1 flex flex-col items-center justify-center px-6 py-20 sm:py-32 text-center relative overflow-hidden">
+        {/* Dramatic glow orbs */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-cyan-500/5 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute top-1/4 right-1/4 w-[350px] h-[350px] bg-indigo-500/5 rounded-full blur-[100px] pointer-events-none" />
+        <div className="absolute bottom-1/4 left-1/4 w-[280px] h-[280px] bg-cyan-400/4 rounded-full blur-[90px] pointer-events-none" />
 
-        <div className="relative z-10 max-w-2xl mx-auto space-y-6 animate-fade-in">
-          <div className="inline-flex items-center gap-2 bg-sentinel-surface/80 backdrop-blur-sm border border-sentinel-border/60 rounded-full px-4 py-1.5 text-xs text-gray-400 shadow-sm">
+        <div className="relative z-10 max-w-2xl mx-auto space-y-8 animate-fade-in">
+          <div className="inline-flex items-center gap-2 bg-slate-900/80 backdrop-blur-sm border border-slate-700/60 rounded-full px-4 py-1.5 text-xs text-slate-400 shadow-sm">
             <span className="w-1.5 h-1.5 bg-sentinel-safe rounded-full animate-pulse" />
             Built on Bags · Track: AI Agents · v0.14.0
           </div>
 
-          <h1 className="text-5xl sm:text-7xl font-black tracking-tight leading-[1.05]">
-            Catch rugs{' '}
-            <span className="bg-gradient-to-r from-cyan-400 via-cyan-300 to-blue-400 bg-clip-text text-transparent">
-              before price.
+          <h1 className="text-6xl sm:text-7xl font-bold tracking-tight leading-[1.02]">
+            <span className="bg-gradient-to-r from-white via-cyan-100 to-cyan-400 bg-clip-text text-transparent">
+              Catch rugs
             </span>
+            <br />
+            <span className="text-white">before price moves.</span>
           </h1>
 
-          <p className="text-base sm:text-lg text-gray-400 max-w-md mx-auto leading-relaxed">
-            5 AI agents score every Bags token 0–100 in real-time.
-            Coordinated manipulation caught before it hits the chart.
-            Automatic broadcast — no dashboard to check.
+          <p className="text-base sm:text-lg text-slate-400 max-w-md mx-auto leading-relaxed">
+            Real-time adversarial risk intelligence for Bags token launches.
           </p>
 
-          <div className="flex items-center justify-center gap-2 text-xs text-emerald-400/80">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
-            Live catch: <span className="font-semibold text-emerald-400">$BAG flagged 32 min before collapse</span>
-          </div>
+          <HeroSearch onScanToken={onScanToken} />
 
-          <div className="pt-2">
-            <HeroSearch onScanToken={onScanToken} />
-          </div>
+          <p className="text-xs text-slate-600">
+            live: <span className="text-slate-500">$BAG caught pre-rug 32m early</span> · <span className="text-slate-500">agent scans every 15 min</span>
+          </p>
         </div>
       </section>
 
       {/* Live stats */}
-      <section className="border-y border-sentinel-border/30 bg-sentinel-surface/20 py-10 px-6">
-        <div className="max-w-3xl mx-auto flex items-center justify-center divide-x divide-sentinel-border/40">
-          <StatBox
-            loading={stats.loading}
-            value={stats.tokensTracked.toString()}
-            label="Tokens Tracked"
-          />
-          <StatBox
-            loading={stats.loading}
-            value={stats.riskScans.toLocaleString()}
-            label="Risk Scans"
-          />
-          <StatBox
-            loading={stats.loading}
-            value={stats.totalApiCalls.toLocaleString()}
-            label="API Calls"
-          />
-          <StatBox value="<1s" label="Edge Response" />
+      <section className="border-y border-slate-800/60 bg-slate-950/50 py-10 px-6">
+        <div className="max-w-3xl mx-auto grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4 text-center">
+            {stats.loading ? (
+              <div className="h-8 w-16 mx-auto rounded-md bg-slate-800/60 animate-pulse" />
+            ) : (
+              <div className="text-2xl font-bold text-white">{stats.tokensTracked}</div>
+            )}
+            <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1.5">Tokens Tracked</div>
+          </div>
+          {/* ONE glowing metric — the heartbeat */}
+          <div className="rounded-xl border border-cyan-500/20 bg-slate-900/40 p-4 text-center">
+            {stats.loading ? (
+              <div className="h-8 w-16 mx-auto rounded-md bg-slate-800/60 animate-pulse" />
+            ) : (
+              <div className="text-2xl font-bold text-cyan-400 drop-shadow-[0_0_12px_rgba(6,182,212,0.5)]">{stats.riskScans.toLocaleString()}</div>
+            )}
+            <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1.5">Risk Scans</div>
+          </div>
+          <div className="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4 text-center">
+            {stats.loading ? (
+              <div className="h-8 w-16 mx-auto rounded-md bg-slate-800/60 animate-pulse" />
+            ) : (
+              <div className="text-2xl font-bold text-white">{stats.totalApiCalls.toLocaleString()}</div>
+            )}
+            <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1.5">API Calls</div>
+          </div>
+          <div className="rounded-xl border border-slate-800/60 bg-slate-900/40 p-4 text-center">
+            <div className="text-2xl font-bold text-white">&lt;1s</div>
+            <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1.5">Edge Response</div>
+          </div>
         </div>
       </section>
 
       {/* 2 superpowers — Live interactive (Bags-native only) */}
-      <section className="px-6 py-16 sm:py-20">
+      <div className="h-px w-full bg-gradient-to-r from-transparent via-slate-800 to-transparent" />
+      <section className="px-6 py-16 sm:py-20 bg-slate-950/20">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-10 max-w-2xl mx-auto">
-            <h2 className="text-2xl sm:text-3xl font-bold">Two things no other Bags tool does</h2>
-            <p className="text-gray-400 mt-3 text-sm">
-              One runs on-demand. One runs <span className="text-sentinel-accent">24/7 without human input</span>.
+            <h2 className="text-2xl sm:text-3xl font-bold text-white">Two things no other Bags tool does</h2>
+            <p className="text-slate-400 mt-3 text-sm">
+              One runs on-demand. One runs <span className="text-cyan-400">24/7 without human input</span>.
             </p>
           </div>
 
           <div className="grid lg:grid-cols-2 gap-4">
             <SwarmDemoCard mint={SENT_MINT} />
 
-            <div className="bg-gradient-to-br from-sentinel-surface/80 to-sentinel-surface/40 rounded-xl p-5 border border-sentinel-border/50 flex flex-col justify-between">
+            <div className="bg-gradient-to-br from-slate-900/80 to-slate-900/40 rounded-xl p-5 border border-slate-800/50 flex flex-col justify-between">
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-xl">📡</span>
                   <h3 className="text-white font-semibold text-sm tracking-tight">Autonomous broadcast agent</h3>
                 </div>
-                <p className="text-[11px] text-gray-500 leading-relaxed mt-2">
+                <p className="text-[11px] text-slate-500 leading-relaxed mt-2">
                   Every 15 minutes, a cron agent scans 100 Bags tokens.
                   When a score collapses, it <span className="text-white">automatically posts to Telegram</span> — no human trigger, no dashboard to check.
                   Subscribe once, get warned before price reacts.
@@ -543,45 +557,64 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
                 href="https://t.me/SentinelRiskAlerts"
                 target="_blank"
                 rel="noopener"
-                className="text-[11px] font-medium px-3 py-1.5 rounded-lg bg-sentinel-accent/15 text-sentinel-accent border border-sentinel-accent/30 hover:bg-sentinel-accent/25 whitespace-nowrap transition-all self-start mt-4"
+                className="text-[11px] font-medium px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 hover:border-cyan-500/30 whitespace-nowrap transition-all self-start mt-4"
               >
                 Join channel →
               </a>
             </div>
           </div>
 
-          <p className="text-center text-[11px] text-gray-600 mt-6">
+          <p className="text-center text-[11px] text-slate-600 mt-6">
             +3 more tools: Risk Badge · Wallet X-Ray · Launch Guard
           </p>
         </div>
       </section>
 
       {/* Why Sentinel */}
-      <section className="px-6 py-16 border-t border-sentinel-border/30 bg-sentinel-surface/20">
-        <div className="max-w-3xl mx-auto">
-          <h2 className="text-2xl font-bold mb-8 text-center">Why Sentinel beats RugCheck + DexScreener combined</h2>
-          <div className="grid sm:grid-cols-3 gap-6">
+      <div className="h-px w-full bg-gradient-to-r from-transparent via-slate-800 to-transparent" />
+      <section className="px-6 py-20 bg-slate-950/40">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-12">
+            <h2 className="text-2xl sm:text-3xl font-bold text-white">What Sentinel detects that humans don't see</h2>
+            <p className="text-slate-500 mt-3 text-sm">Pattern recognition across on-chain behavior, not just static metrics.</p>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-4">
             {[
               {
+                phase: 'SIMULATION LAYER',
+                phaseColor: 'text-yellow-400 border-yellow-500/20 bg-yellow-500/5',
                 icon: '🧪',
                 title: 'What-if engine',
-                desc: 'Other tools tell you the score. Sentinel simulates 6 rug scenarios so you know what could go wrong, when, and how much you\'d lose.',
+                desc: 'Sentinel simulates 6 rug scenarios before they happen. You see the exact loss scenario, not just a score.',
+                signal: 'price impact if LP pulled in next 10 min',
               },
               {
+                phase: 'CONSENSUS LAYER',
+                phaseColor: 'text-cyan-400 border-cyan-500/20 bg-cyan-500/5',
                 icon: '🤖',
                 title: 'Multi-agent consensus',
-                desc: 'Five specialized AI agents — risk, volume, sentiment, whales, creator — vote independently via BFT consensus. One agent being wrong doesn\'t break the verdict.',
+                desc: 'Five specialized agents vote independently. Risk, volume, sentiment, whales, creator history. One being wrong doesn\'t break the verdict.',
+                signal: 'coordinated wallets + low LP depth detected',
               },
               {
+                phase: 'AUTONOMOUS LAYER',
+                phaseColor: 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5',
                 icon: '📡',
                 title: 'Agent that acts',
-                desc: 'Sentinel doesn\'t wait for you to check a dashboard. It runs every 15 min, detects collapses, and posts to Telegram automatically. That\'s an agent, not a tool.',
+                desc: 'Sentinel doesn\'t wait for you to open a dashboard. Score collapse → Telegram broadcast. Automatic.',
+                signal: 'alert dispatched 32m before price collapsed',
               },
             ].map((f) => (
-              <div key={f.title} className="space-y-2">
-                <div className="text-2xl">{f.icon}</div>
-                <h3 className="text-white font-semibold text-sm">{f.title}</h3>
-                <p className="text-gray-400 text-xs leading-relaxed">{f.desc}</p>
+              <div key={f.title} className="p-5 rounded-xl border border-slate-800/60 bg-slate-900/40 hover:bg-slate-900/60 hover:border-slate-700/60 hover:-translate-y-0.5 transition-all duration-300">
+                <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[9px] font-semibold tracking-widest uppercase mb-3 ${f.phaseColor}`}>
+                  {f.phase}
+                </div>
+                <div className="text-xl mb-2">{f.icon}</div>
+                <h3 className="text-white font-semibold text-sm mb-1.5">{f.title}</h3>
+                <p className="text-slate-400 text-xs leading-relaxed mb-3">{f.desc}</p>
+                <div className="text-[10px] text-slate-600 font-mono border-t border-slate-800/60 pt-2 mt-auto">
+                  › {f.signal}
+                </div>
               </div>
             ))}
           </div>
@@ -594,14 +627,15 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
       {/* Pre-Rug Catches — live evidence chain */}
       <PreRugCatchesBanner />
 
-      {/* Proof & Audit — "don't trust, verify" */}
-      <section className="px-6 py-16 border-t border-sentinel-border/30">
+      {/* Proof & Audit — “don't trust, verify” */}
+      <div className="h-px w-full bg-gradient-to-r from-transparent via-slate-800 to-transparent" />
+      <section className="px-6 py-20 bg-slate-950/40">
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-10 max-w-2xl mx-auto">
-            <h2 className="text-2xl sm:text-3xl font-bold">Don't trust — verify.</h2>
-            <p className="text-gray-400 mt-3 text-sm">
+            <h2 className="text-2xl sm:text-3xl font-bold text-white">Don't trust — verify.</h2>
+            <p className="text-slate-400 mt-3 text-sm">
               Every score is reproducible from public data.
-              Every claim in this page is backed by code you can read, run, and audit.
+              Every claim on this page is backed by code you can read, run, and audit.
             </p>
           </div>
           <div className="grid sm:grid-cols-2 gap-3">
@@ -609,80 +643,73 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
               href="https://github.com/loquit-doru/sentinel/blob/main/EVIDENCE.md"
               target="_blank"
               rel="noopener"
-              className="p-4 rounded-xl border border-sentinel-border/60 hover:border-sentinel-accent/40 bg-sentinel-surface/40 hover:bg-sentinel-surface/70 transition-all group"
+              className="p-5 rounded-xl border border-slate-800/60 bg-slate-900/40 hover:border-cyan-500/30 hover:bg-slate-900/60 hover:-translate-y-0.5 transition-all duration-300 group"
             >
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-2">
                 <span className="text-lg">📜</span>
-                <h3 className="font-semibold text-sm text-white group-hover:text-sentinel-accent transition-colors">EVIDENCE.md</h3>
-                <span className="text-[10px] text-sentinel-accent ml-auto">↗</span>
+                <h3 className="font-semibold text-sm text-white group-hover:text-cyan-400 transition-colors">EVIDENCE.md</h3>
+                <span className="text-[10px] text-slate-600 group-hover:text-cyan-500 ml-auto transition-colors">↗</span>
               </div>
-              <p className="text-[11px] text-gray-500 leading-relaxed">
-                Full methodology + weights + current Bags leaderboard scan + ground-truth alignment protocol.
-              </p>
+              <p className="text-xs text-slate-500 leading-relaxed">Full methodology + weights + current Bags leaderboard scan + ground-truth alignment protocol.</p>
             </a>
             <a
               href="https://sentinel-api.apiworkersdev.workers.dev/stats"
               target="_blank"
               rel="noopener"
-              className="p-4 rounded-xl border border-sentinel-border/60 hover:border-sentinel-accent/40 bg-sentinel-surface/40 hover:bg-sentinel-surface/70 transition-all group"
+              className="p-5 rounded-xl border border-slate-800/60 bg-slate-900/40 hover:border-cyan-500/30 hover:bg-slate-900/60 hover:-translate-y-0.5 transition-all duration-300 group"
             >
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-2">
                 <span className="text-lg">📊</span>
-                <h3 className="font-semibold text-sm text-white group-hover:text-sentinel-accent transition-colors">GET /stats</h3>
-                <span className="text-[10px] text-sentinel-accent ml-auto">↗</span>
+                <h3 className="font-semibold text-sm text-white group-hover:text-cyan-400 transition-colors">GET /stats</h3>
+                <span className="text-[10px] text-slate-600 group-hover:text-cyan-500 ml-auto transition-colors">↗</span>
               </div>
-              <p className="text-[11px] text-gray-500 leading-relaxed">
-                Public endpoint. Raw JSON: total requests, per-endpoint breakdown, today vs yesterday. No auth.
-              </p>
+              <p className="text-xs text-slate-500 leading-relaxed">Public endpoint. Raw JSON: total requests, per-endpoint breakdown, today vs yesterday. No auth.</p>
             </a>
             <a
               href="https://github.com/loquit-doru/sentinel/blob/main/worker/src/risk/engine.ts"
               target="_blank"
               rel="noopener"
-              className="p-4 rounded-xl border border-sentinel-border/60 hover:border-sentinel-accent/40 bg-sentinel-surface/40 hover:bg-sentinel-surface/70 transition-all group"
+              className="p-5 rounded-xl border border-slate-800/60 bg-slate-900/40 hover:border-cyan-500/30 hover:bg-slate-900/60 hover:-translate-y-0.5 transition-all duration-300 group"
             >
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-2">
                 <span className="text-lg">⚙️</span>
-                <h3 className="font-semibold text-sm text-white group-hover:text-sentinel-accent transition-colors">engine.ts</h3>
-                <span className="text-[10px] text-sentinel-accent ml-auto">↗</span>
+                <h3 className="font-semibold text-sm text-white group-hover:text-cyan-400 transition-colors">engine.ts</h3>
+                <span className="text-[10px] text-slate-600 group-hover:text-cyan-500 ml-auto transition-colors">↗</span>
               </div>
-              <p className="text-[11px] text-gray-500 leading-relaxed">
-                8-signal weighted scoring + instant rug override. 102 unit tests. Pure TypeScript, no magic.
-              </p>
+              <p className="text-xs text-slate-500 leading-relaxed">8-signal weighted scoring + instant rug override. 102 unit tests. Pure TypeScript, no magic.</p>
             </a>
             <a
               href="https://github.com/loquit-doru/sentinel/blob/main/worker/src/partner/bags-partner.ts"
               target="_blank"
               rel="noopener"
-              className="p-4 rounded-xl border border-sentinel-border/60 hover:border-sentinel-accent/40 bg-sentinel-surface/40 hover:bg-sentinel-surface/70 transition-all group"
+              className="p-5 rounded-xl border border-slate-800/60 bg-slate-900/40 hover:border-cyan-500/30 hover:bg-slate-900/60 hover:-translate-y-0.5 transition-all duration-300 group"
             >
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2 mb-2">
                 <span className="text-lg">🤝</span>
-                <h3 className="font-semibold text-sm text-white group-hover:text-sentinel-accent transition-colors">Bags Partner API</h3>
-                <span className="text-[10px] text-sentinel-accent ml-auto">↗</span>
+                <h3 className="font-semibold text-sm text-white group-hover:text-cyan-400 transition-colors">Bags Partner API</h3>
+                <span className="text-[10px] text-slate-600 group-hover:text-cyan-500 ml-auto transition-colors">↗</span>
               </div>
-              <p className="text-[11px] text-gray-500 leading-relaxed">
-                4 Bags partner endpoints consumed: config, create, claim-stats, claim-txs. Plus leaderboard, fee-share, trade quotes.
-              </p>
+              <p className="text-xs text-slate-500 leading-relaxed">4 Bags partner endpoints consumed: config, create, claim-stats, claim-txs. Plus leaderboard, fee-share, trade quotes.</p>
             </a>
           </div>
-          <p className="text-center text-[11px] text-gray-600 mt-6">
-            Reproduce our scan: <code className="text-sentinel-accent">npx tsx scripts/scan-top-tokens.ts</code> · Audit any token: <code className="text-sentinel-accent">curl /v1/risk/token/&lt;mint&gt;</code>
+          <p className="text-center text-[11px] text-slate-700 mt-6 font-mono">
+            Reproduce scan: <span className="text-slate-500">npx tsx scripts/scan-top-tokens.ts</span> · Audit token: <span className="text-slate-500">curl /v1/risk/token/&lt;mint&gt;</span>
           </p>
         </div>
       </section>
 
       {/* CTA bottom */}
-      <section className="px-6 py-16 text-center">
-        <div className="max-w-lg mx-auto space-y-4">
-          <h2 className="text-2xl font-bold">Ready to trade smarter?</h2>
-          <p className="text-gray-400 text-sm">
+      <div className="h-px w-full bg-gradient-to-r from-transparent via-slate-800 to-transparent" />
+      <section className="px-6 py-20 text-center bg-slate-950/20">
+        <div className="max-w-lg mx-auto space-y-6">
+          <h2 className="text-3xl font-bold text-white">Ready to trade smarter?</h2>
+          <p className="text-slate-400 text-sm">
             Free to use. No sign-up. Connect your wallet only when you want to claim or stake.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <button
               onClick={onLaunch}
-              className="bg-sentinel-accent hover:bg-sentinel-accent-dim text-white font-semibold px-8 py-3 rounded-xl text-base transition-all hover:shadow-lg hover:shadow-sentinel-accent/20"
+              className="bg-gradient-to-r from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300 text-black font-semibold px-8 py-3 rounded-xl text-base transition-all shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/30 hover:scale-105"
             >
               Launch App →
             </button>
@@ -690,7 +717,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
               href={`https://bags.fm/token/${SENT_MINT}`}
               target="_blank"
               rel="noopener"
-              className="text-sentinel-accent hover:text-white text-sm font-medium px-6 py-3 rounded-xl border border-sentinel-accent/40 hover:border-sentinel-accent hover:bg-sentinel-accent/10 transition-all"
+              className="text-slate-400 hover:text-white text-sm font-medium px-6 py-3 rounded-xl border border-slate-700/60 hover:border-slate-600 hover:bg-slate-900/40 transition-all"
             >
               View $SENT on Bags ↗
             </a>
@@ -699,15 +726,15 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-sentinel-border/30 px-6 py-4">
+      <footer className="border-t border-slate-800/50 px-6 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between text-[11px] text-gray-600">
           <div className="flex items-center gap-2">
             <SentinelLogo size={14} />
             <span>Sentinel v0.14.0 — AI Risk Intelligence for Bags</span>
           </div>
           <div className="flex items-center gap-3">
-            <a href="https://github.com/loquit-doru/sentinel" target="_blank" rel="noopener" className="text-sentinel-accent/60 hover:text-sentinel-accent transition-colors">GitHub ↗</a>
-            <a href="https://bags.fm" target="_blank" rel="noopener" className="text-sentinel-accent/60 hover:text-sentinel-accent transition-colors">bags.fm ↗</a>
+            <a href="https://github.com/loquit-doru/sentinel" target="_blank" rel="noopener" className="text-cyan-500/50 hover:text-cyan-400 transition-colors">GitHub ↗</a>
+            <a href="https://bags.fm" target="_blank" rel="noopener" className="text-cyan-500/50 hover:text-cyan-400 transition-colors">bags.fm ↗</a>
           </div>
         </div>
       </footer>
