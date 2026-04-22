@@ -223,7 +223,7 @@ function PreRugCatchesBanner() {
           </div>
           <h2 className="text-2xl sm:text-3xl font-bold">Pre-rug catches · live</h2>
           <p className="text-gray-400 mt-3 text-sm">
-            Every 15 minutes, our cron scans the top 50 Bags tokens and records the first moment a score
+            Every 15 minutes, our cron scans the top 100 Bags tokens and records the first moment a score
             collapses ≥40 points or crashes into danger/rug tier. This is not a claim — it's a log.
           </p>
         </div>
@@ -461,19 +461,20 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
         <div className="relative z-10 max-w-2xl mx-auto space-y-6 animate-fade-in">
           <div className="inline-flex items-center gap-2 bg-sentinel-surface/80 backdrop-blur-sm border border-sentinel-border/60 rounded-full px-4 py-1.5 text-xs text-gray-400 shadow-sm">
             <span className="w-1.5 h-1.5 bg-sentinel-safe rounded-full animate-pulse" />
-            Built on Bags · Track: AI Agents · v0.13.0
+            Built on Bags · Track: AI Agents · v0.14.0
           </div>
 
           <h1 className="text-5xl sm:text-7xl font-black tracking-tight leading-[1.05]">
-            Read the{' '}
+            Catch rugs{' '}
             <span className="bg-gradient-to-r from-cyan-400 via-cyan-300 to-blue-400 bg-clip-text text-transparent">
-              market.
+              before price.
             </span>
           </h1>
 
           <p className="text-base sm:text-lg text-gray-400 max-w-md mx-auto leading-relaxed">
-            Sentinel tracks the behavior of money itself — detecting coordinated manipulation before it becomes
-            visible on price charts. AI risk scoring + pump phase intelligence for Bags tokens.
+            5 AI agents score every Bags token 0–100 in real-time.
+            Coordinated manipulation caught before it hits the chart.
+            Automatic broadcast — no dashboard to check.
           </p>
 
           <div className="flex items-center justify-center gap-2 text-xs text-emerald-400/80">
@@ -513,10 +514,9 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
       <section className="px-6 py-16 sm:py-20">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-10 max-w-2xl mx-auto">
-            <h2 className="text-2xl sm:text-3xl font-bold">Two superpowers no other Bags tool has</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold">Two things no other Bags tool does</h2>
             <p className="text-gray-400 mt-3 text-sm">
-              Run them <span className="text-sentinel-accent">live, right here</span>, on $SENT.
-              No wallet, no sign-up, no install.
+              Both running <span className="text-sentinel-accent">live right now</span>, without human input.
             </p>
           </div>
 
@@ -526,25 +526,32 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
             <div className="bg-gradient-to-br from-sentinel-surface/80 to-sentinel-surface/40 rounded-xl p-5 border border-sentinel-border/50 flex flex-col justify-between">
               <div>
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xl">🏦</span>
-                  <h3 className="text-white font-semibold text-sm tracking-tight">Community Insurance Pool</h3>
+                  <span className="text-xl">📡</span>
+                  <h3 className="text-white font-semibold text-sm tracking-tight">Autonomous broadcast agent</h3>
                 </div>
                 <p className="text-[11px] text-gray-500 leading-relaxed mt-2">
-                  Stake $SENT in 3 tiers. Get auto-paid when a token you held drops 40+ points or hits rug-tier.
-                  No claims department, no human review.
+                  Every 15 minutes, a cron agent scans 100 Bags tokens.
+                  When a score collapses, it <span className="text-white">automatically posts to Telegram</span> — no human trigger, no dashboard to check.
+                  Subscribe once, get warned before price reacts.
                 </p>
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-[10px] text-emerald-400 font-medium">Live: @SentinelRiskAlerts on Telegram</span>
+                </div>
               </div>
-              <button
-                onClick={onLaunch}
+              <a
+                href="https://t.me/SentinelRiskAlerts"
+                target="_blank"
+                rel="noopener"
                 className="text-[11px] font-medium px-3 py-1.5 rounded-lg bg-sentinel-accent/15 text-sentinel-accent border border-sentinel-accent/30 hover:bg-sentinel-accent/25 whitespace-nowrap transition-all self-start mt-4"
               >
-                Open pool →
-              </button>
+                Join channel →
+              </a>
             </div>
           </div>
 
           <p className="text-center text-[11px] text-gray-600 mt-6">
-            +3 complementary tools: Bags Token Monitor · Launch Guard · Wallet X-Ray
+            +3 more tools: Risk Badge · Wallet X-Ray · Launch Guard
           </p>
         </div>
       </section>
@@ -562,13 +569,13 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
               },
               {
                 icon: '🤖',
-                title: 'Multi-agent AI',
-                desc: 'Five specialized agents debate independently — risk, volume, sentiment, whales, creator history — then vote. No single LLM blind spot.',
+                title: 'Multi-agent consensus',
+                desc: 'Five specialized AI agents — risk, volume, sentiment, whales, creator — vote independently via BFT consensus. One agent being wrong doesn\'t break the verdict.',
               },
               {
-                icon: '🏦',
-                title: 'Skin in the game',
-                desc: '$SENT holders aren\'t just users — they back the insurance pool that pays out when scores collapse. Aligned incentives, not just analytics.',
+                icon: '📡',
+                title: 'Agent that acts',
+                desc: 'Sentinel doesn\'t wait for you to check a dashboard. It runs every 15 min, detects collapses, and posts to Telegram automatically. That\'s an agent, not a tool.',
               },
             ].map((f) => (
               <div key={f.title} className="space-y-2">
@@ -640,7 +647,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
                 <span className="text-[10px] text-sentinel-accent ml-auto">↗</span>
               </div>
               <p className="text-[11px] text-gray-500 leading-relaxed">
-                8-signal weighted scoring + instant rug override. 88 unit tests. Pure TypeScript, no magic.
+                8-signal weighted scoring + instant rug override. 102 unit tests. Pure TypeScript, no magic.
               </p>
             </a>
             <a
@@ -696,7 +703,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
         <div className="max-w-4xl mx-auto flex items-center justify-between text-[11px] text-gray-600">
           <div className="flex items-center gap-2">
             <SentinelLogo size={14} />
-            <span>Sentinel v0.13.0 — AI Risk Intelligence for Bags</span>
+            <span>Sentinel v0.14.0 — AI Risk Intelligence for Bags</span>
           </div>
           <div className="flex items-center gap-3">
             <a href="https://github.com/loquit-doru/sentinel" target="_blank" rel="noopener" className="text-sentinel-accent/60 hover:text-sentinel-accent transition-colors">GitHub ↗</a>
