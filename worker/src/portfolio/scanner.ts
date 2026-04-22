@@ -20,14 +20,60 @@ export interface XRayToken {
   score: number | null;   // 0-100 or null if scoring failed
   tier: string | null;
   breakdown: RiskBreakdown | null;
+  phase?: string;         // pump phase if available (from KV cache)
 }
 
 export interface XRayResult {
   wallet: string;
   holdings: XRayToken[];
-  portfolioHealth: number;   // weighted-average score
+  portfolioHealth: number;   // non-linear GPT formula (Herfindahl + phase multipliers)
   flaggedCount: number;      // tokens with score < 40
+  maxRiskToken: string | null; // mint with highest individual risk contribution
   scannedAt: number;
+}
+
+/** Phase multipliers — collapse is NOT just "more risky", it's loss-realization state */
+const PHASE_MULTIPLIERS: Record<string, number> = {
+  accumulation:  1.0,
+  manipulation:  1.6,
+  distribution:  2.2,
+  collapse:      3.5,
+  uncertain:     1.2,
+};
+
+/**
+ * Non-linear portfolio health score (GPT formula):
+ * - Phase multipliers: collapse/manipulation exposure penalised heavily
+ * - Herfindahl concentration: single-token dominance punished
+ * - DiversificationBonus: only rewards truly diversified wallets
+ */
+function computePortfolioHealth(
+  tokens: (XRayToken & { score: number })[],
+): { health: number; maxRiskToken: string | null } {
+  if (tokens.length === 0) return { health: 0, maxRiskToken: null };
+
+  // Equal weight per token (no USD prices available; each token = 1 unit)
+  const w = 1 / tokens.length;
+
+  // Per-token risk contribution: weight × riskScore × phaseMultiplier
+  const contribs = tokens.map((t) => {
+    const mult = PHASE_MULTIPLIERS[t.phase ?? 'uncertain'] ?? 1.2;
+    return { mint: t.mint, risk: w * t.score * mult };
+  });
+
+  const baseRisk = contribs.reduce((s, c) => s + c.risk, 0);
+
+  // Herfindahl-Hirschman Index (equal weights → H = 1/n)
+  const H = tokens.length * (w * w);
+  const concentrationPenalty = H * 100;
+  const diversificationBonus = (1 - H) * 20;
+
+  const raw = 100 - baseRisk * 0.6 - concentrationPenalty * 0.3 + diversificationBonus;
+  const health = Math.min(100, Math.max(0, Math.round(raw)));
+
+  const worst = contribs.reduce((max, c) => (c.risk > max.risk ? c : max), contribs[0]);
+
+  return { health, maxRiskToken: worst.mint };
 }
 
 /** Fetch all SPL token accounts for a wallet via Helius RPC */
@@ -98,7 +144,7 @@ export async function scanWallet(
   kv?: KVNamespace,
 ): Promise<XRayResult> {
   if (!env.HELIUS_API_KEY) {
-    return { wallet, holdings: [], portfolioHealth: 0, flaggedCount: 0, scannedAt: Date.now() };
+    return { wallet, holdings: [], portfolioHealth: 0, flaggedCount: 0, maxRiskToken: null, scannedAt: Date.now() };
   }
 
   const holdings = await fetchWalletTokens(wallet, env.HELIUS_API_KEY);
@@ -111,9 +157,9 @@ export async function scanWallet(
       try {
         // Check KV cache first
         if (kv) {
-          const cached = await kv.get(`risk:${h.mint}`, 'json') as { score: number; tier: string; breakdown: RiskBreakdown } | null;
+          const cached = await kv.get(`risk:${h.mint}`, 'json') as { score: number; tier: string; breakdown: RiskBreakdown; phase?: string } | null;
           if (cached) {
-            return { mint: h.mint, amount: h.amount, decimals: h.decimals, score: cached.score, tier: cached.tier, breakdown: cached.breakdown };
+            return { mint: h.mint, amount: h.amount, decimals: h.decimals, score: cached.score, tier: cached.tier, breakdown: cached.breakdown, phase: cached.phase };
           }
         }
 
@@ -131,11 +177,9 @@ export async function scanWallet(
     }),
   );
 
-  // Calculate portfolio health (average of scored tokens)
+  // Non-linear portfolio health (GPT formula)
   const validScores = scored.filter((t) => t.score !== null) as (XRayToken & { score: number })[];
-  const portfolioHealth = validScores.length > 0
-    ? Math.round(validScores.reduce((s, t) => s + t.score, 0) / validScores.length)
-    : 0;
+  const { health: portfolioHealth, maxRiskToken } = computePortfolioHealth(validScores);
   const flaggedCount = validScores.filter((t) => t.score < 40).length;
 
   return {
@@ -143,6 +187,7 @@ export async function scanWallet(
     holdings: scored,
     portfolioHealth,
     flaggedCount,
+    maxRiskToken,
     scannedAt: Date.now(),
   };
 }

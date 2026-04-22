@@ -1,4 +1,4 @@
-import type { TokenFeedItem } from '../../../shared/types';
+import type { TokenFeedItem, TokenStats24h } from '../../../shared/types';
 import { BAGS_API_BASE } from '../../../shared/constants';
 
 /** Raw Bags API response shape for top tokens by lifetime fees */
@@ -60,6 +60,18 @@ export async function fetchTopTokens(apiKey?: string): Promise<TokenFeedItem[]> 
       const info = item.tokenInfo!;
       const stats = info.stats24h;
       const volume24h = (stats?.buyVolume ?? 0) + (stats?.sellVolume ?? 0);
+
+      const stats24h: TokenStats24h | null = stats
+        ? {
+            priceChange: stats.priceChange,
+            buyVolume: stats.buyVolume,
+            sellVolume: stats.sellVolume,
+            numBuys: stats.numBuys,
+            numSells: stats.numSells,
+            numTraders: stats.numTraders,
+          }
+        : null;
+
       return {
         mint: item.token,
         name: info.name,
@@ -72,6 +84,8 @@ export async function fetchTopTokens(apiKey?: string): Promise<TokenFeedItem[]> 
         riskScore: null,
         riskTier: null,
         lifetimeFees: parseFloat(item.lifetimeFees) || 0,
+        liquidity: info.liquidity ?? 0,
+        stats24h,
       };
     });
 }

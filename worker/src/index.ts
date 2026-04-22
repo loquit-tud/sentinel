@@ -8,6 +8,7 @@ import { fetchClaimablePositions, fetchClaimTransactions } from './fees/bags-fee
 import { fetchSmartFees } from './fees/smart-fees';
 import { createTokenInfo, createLaunchTransaction, createFeeShareConfig } from './token/launch';
 import type { FeeClaimerEntry } from './token/launch';
+import { evaluateLaunchGuard } from './token/launch-guard';
 import { scanWallet } from './portfolio/scanner';
 import { getSwapQuote, buildSwapTransaction, WSOL_MINT } from './trade/swap';
 import { runAlertScan, getAlertFeed } from './alerts/scanner';
@@ -15,6 +16,7 @@ import { buildCreatorProfile } from './creator/profiler';
 import { renderBadgeSVG } from './badge/svg';
 import { renderShareCardSVG } from './badge/card';
 import { renderCreatorCardSVG } from './badge/creator-card';
+import { renderEmbedHTML } from './badge/embed';
 import { buildFeeAnalytics } from './fees/analytics';
 import { simulateFeeShare } from './fees/simulator';
 import { registerWallet, unregisterWallet, runFeeMonitorScan } from './monitor/fee-monitor';
@@ -23,12 +25,19 @@ import { prepareClaim, getClaim, markClaimDone } from './claims/pending-claims';
 import { getPartnerConfig, getPartnerCreationTx, getPartnerClaimStats, getPartnerClaimTxs } from './partner/bags-partner';
 import { checkTokenGate, requireTier } from './gate/token-gate';
 import type { GateTier } from './gate/token-gate';
+const USD_HOLDER_MIN = 1.0; // $1 USD — must match token-gate.ts
 import { getAppStoreInfo, getSentFeeShareTarget } from './app-store/info';
-import { runSwarmCycle, getSwarmState } from './swarm/engine';
+import { fetchSentFeeStats } from './token/sent-stats';
+import { runSwarmCycle, getSwarmState, runTokenSwarmCycle } from './swarm/engine';
 import { screenTransaction, getWalletConfig, addRule, removeRule, updateSettings, getFirewallStats, getFirewallLog } from './firewall/engine';
 import { getPoolStats, commitToPool, submitClaim, getWalletClaims, getRecentClaims, getCommitments } from './insurance/pool';
 import { computeCreatorTrustScore } from './creator/trust-score';
 import { simulateRug } from './risk/pre-rug-simulator';
+import { runPreRugWatch, getRecentCatches, getWatchStats, getTokenMemory } from './watch/pre-rug-catcher';
+import { subscribe as tgSubscribe, unsubscribe as tgUnsubscribe, notifySubscribersOfCatch, getSubscriberCount } from './notify/alert-subscriptions';
+import type { CatchPayload } from './notify/alert-subscriptions';
+import { computeSurvival } from './launch/survival';
+import type { SurvivalInput } from './launch/survival';
 
 export interface Env {
   // Secrets
@@ -47,7 +56,65 @@ const SOLANA_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 const app = new Hono<{ Bindings: Env }>();
 
-app.use('/*', cors());
+const ALLOWED_ORIGINS = [
+  'https://sentinel-dashboard-3uy.pages.dev',
+  'https://sentinel.bags.fm',
+  'https://bags.fm',
+  'http://localhost:5173',
+  'http://localhost:4173',
+];
+
+app.use('/*', cors({
+  origin: (origin) => {
+    if (!origin) return '*'; // server-to-server, curl, embed iframes
+    if (ALLOWED_ORIGINS.includes(origin)) return origin;
+    if (origin.endsWith('.pages.dev')) return origin; // CF Pages previews
+    return null;
+  },
+  allowMethods: ['GET', 'POST', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization', 'x-wallet'],
+  maxAge: 86400,
+}));
+
+// ── Rate limiting (in-memory per-isolate; CF spreads requests across many isolates) ──
+// Lightweight defense against accidental spam from a single client.
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+function rateLimit(key: string, limit: number, windowMs: number): { ok: boolean; remaining: number; resetAt: number } {
+  const now = Date.now();
+  const b = rateBuckets.get(key);
+  if (!b || b.resetAt < now) {
+    const fresh = { count: 1, resetAt: now + windowMs };
+    rateBuckets.set(key, fresh);
+    return { ok: true, remaining: limit - 1, resetAt: fresh.resetAt };
+  }
+  b.count += 1;
+  if (b.count > limit) return { ok: false, remaining: 0, resetAt: b.resetAt };
+  return { ok: true, remaining: limit - b.count, resetAt: b.resetAt };
+}
+
+app.use('/v1/risk/*', async (c, next) => {
+  const ip = c.req.header('cf-connecting-ip') || 'anon';
+  const r = rateLimit(`risk:${ip}`, 60, 60_000); // 60 req/min/IP
+  c.header('X-RateLimit-Limit', '60');
+  c.header('X-RateLimit-Remaining', String(r.remaining));
+  c.header('X-RateLimit-Reset', String(Math.ceil(r.resetAt / 1000)));
+  if (!r.ok) {
+    c.header('Retry-After', String(Math.ceil((r.resetAt - Date.now()) / 1000)));
+    return c.json({ ok: false, error: 'rate_limit_exceeded' }, 429);
+  }
+  await next();
+});
+
+app.use('/v1/embed/*', async (c, next) => {
+  const ip = c.req.header('cf-connecting-ip') || 'anon';
+  const r = rateLimit(`embed:${ip}`, 120, 60_000); // 120 req/min/IP (embeds are public widgets)
+  c.header('X-RateLimit-Remaining', String(r.remaining));
+  if (!r.ok) {
+    c.header('Retry-After', String(Math.ceil((r.resetAt - Date.now()) / 1000)));
+    return c.json({ ok: false, error: 'rate_limit_exceeded' }, 429);
+  }
+  await next();
+});
 
 // ── Analytics middleware ──────────────────────────────────
 // Fire-and-forget: track API usage in KV for traction metrics
@@ -70,6 +137,7 @@ app.use('/v1/*', async (c, next) => {
     path.startsWith('/v1/alerts') ? 'alerts' :
     path.startsWith('/v1/creator/') ? 'creator' :
     path.startsWith('/v1/badge/') ? 'badge' :
+    path.startsWith('/v1/embed/') ? 'embed' :
     path.startsWith('/v1/card/') ? 'card' :
     path.startsWith('/v1/leaderboard') ? 'leaderboard' :
     path.startsWith('/v1/fees/simulate') ? 'simulator' :
@@ -103,7 +171,8 @@ app.get('/health', (c) => {
     status: 'ok',
     service: 'sentinel-api',
     version: '0.13.0',
-    pillars: ['risk-intelligence', 'autoclaim', 'alert-feed', 'creator-reputation', 'creator-trust-score', 'partner-integration', 'token-gating', 'fee-analytics', 'fee-simulator', 'social-sharing', 'autonomous-firewall', 'insurance-pool', 'pre-rug-simulator'],
+    pillars: ['risk-scoring-engine', 'wallet-xray'],
+    features: ['autoclaim', 'alert-feed', 'creator-reputation', 'token-gating', 'fee-analytics', 'social-sharing', 'autonomous-firewall'],
     bagsNative: true,
     walletConnect: true,
   });
@@ -160,7 +229,120 @@ app.get('/stats', async (c) => {
   });
 });
 
+// ── Pre-Rug Watch (evidence chain) ───────────────────────
+
+app.get('/v1/watch/catches', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+  const limit = Math.min(Number(c.req.query('limit') ?? 20), 100);
+  const [catches, stats] = await Promise.all([
+    getRecentCatches(kv, limit),
+    getWatchStats(kv),
+  ]);
+  return c.json({
+    ok: true,
+    data: {
+      catches,
+      stats: stats ?? { tokensWatched: 0, catches: 0, lastRunAt: 0, lastCatchAt: null, avgLeadTimeMs: 0 },
+    },
+  });
+});
+
+app.get('/v1/watch/memory/:mint', async (c) => {
+  const mint = c.req.param('mint');
+  if (!SOLANA_ADDR_RE.test(mint)) {
+    return c.json({ ok: false, error: 'Invalid Solana mint address' }, 400);
+  }
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+  const memory = await getTokenMemory(kv, mint);
+  if (!memory) return c.json({ ok: false, error: 'No memory for this token yet' }, 404);
+  return c.json({ ok: true, data: memory });
+});
+
+// ── Telegram Alert Subscriptions ─────────────────────────
+
+/**
+ * POST /v1/alerts/subscribe
+ * Body: { chatId: string, wallet?: string }
+ * Subscribe a Telegram chat to receive pre-rug catch broadcasts.
+ */
+app.post('/v1/alerts/subscribe', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+  let body: { chatId?: string; wallet?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: 'Invalid JSON' }, 400);
+  }
+  const chatId = body.chatId?.trim();
+  if (!chatId || !/^\-?\d+$/.test(chatId)) {
+    return c.json({ ok: false, error: 'chatId must be a numeric Telegram chat ID' }, 400);
+  }
+  const wallet = body.wallet?.trim();
+  if (wallet && !SOLANA_ADDR_RE.test(wallet)) {
+    return c.json({ ok: false, error: 'Invalid Solana wallet address' }, 400);
+  }
+  await tgSubscribe(kv, chatId, wallet);
+  return c.json({ ok: true, message: 'Subscribed. You will receive alerts for new pre-rug catches.' });
+});
+
+/**
+ * DELETE /v1/alerts/subscribe
+ * Body: { chatId: string }
+ */
+app.delete('/v1/alerts/subscribe', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+  let body: { chatId?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: 'Invalid JSON' }, 400);
+  }
+  const chatId = body.chatId?.trim();
+  if (!chatId) return c.json({ ok: false, error: 'chatId required' }, 400);
+  await tgUnsubscribe(kv, chatId);
+  return c.json({ ok: true, message: 'Unsubscribed.' });
+});
+
+/**
+ * GET /v1/alerts/subscribers/count — public stats
+ */
+app.get('/v1/alerts/subscribers/count', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+  const count = await getSubscriberCount(kv);
+  return c.json({ ok: true, data: { count } });
+});
+
 // ── Risk Score ───────────────────────────────────────────
+
+// ── Risk Scan daily quota helpers ───────────────────────
+const FREE_DAILY_SCANS = 3;
+
+async function checkScanQuota(
+  kv: KVNamespace,
+  ip: string,
+  wallet: string | null,
+): Promise<{ allowed: boolean; remaining: number; tier: string }> {
+  // Holders (any $SENT) get unlimited scans — quota only for anonymous/free users
+  if (wallet && SOLANA_ADDR_RE.test(wallet)) {
+    return { allowed: true, remaining: 999, tier: 'holder' };
+  }
+
+  // Free quota: 3 scans/day per IP
+  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const key = `quota:scan:${ip}:${today}`;
+  const used = parseInt((await kv.get(key)) ?? '0', 10);
+  if (used >= FREE_DAILY_SCANS) {
+    return { allowed: false, remaining: 0, tier: 'free' };
+  }
+  // Increment (fire-and-forget, TTL 26h)
+  kv.put(key, String(used + 1), { expirationTtl: 26 * 60 * 60 }).catch(() => {});
+  return { allowed: true, remaining: FREE_DAILY_SCANS - used - 1, tier: 'free' };
+}
 
 app.get('/v1/risk/:mint', async (c) => {
   const mint = c.req.param('mint');
@@ -171,13 +353,31 @@ app.get('/v1/risk/:mint', async (c) => {
 
   const kv = c.env.SENTINEL_KV;
 
-  // Check KV cache
+  // Check KV cache — always serve cached result regardless of quota
   if (kv) {
     const cached = await kv.get(`risk:${mint}`, 'json');
     if (cached) {
       return c.json({ ok: true, data: { ...(cached as object), cached: true } }, 200, {
         'x-cache': 'HIT',
       });
+    }
+  }
+
+  // Quota check (only for fresh/uncached scans)
+  const scannerWallet = c.req.header('x-wallet') ?? null;
+  const ip = c.req.header('cf-connecting-ip') ?? 'anon';
+  if (kv) {
+    const quota = await checkScanQuota(kv, ip, scannerWallet);
+    c.header('x-scan-tier', quota.tier);
+    c.header('x-scan-remaining', String(quota.remaining));
+    if (!quota.allowed) {
+      return c.json({
+        ok: false,
+        error: 'Daily scan limit reached',
+        hint: 'Hold any $SENT to unlock unlimited scans',
+        sentMint: 'Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS',
+        bagsUrl: 'https://bags.fm/token/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS',
+      }, 429);
     }
   }
 
@@ -190,13 +390,11 @@ app.get('/v1/risk/:mint', async (c) => {
     // Store in KV cache (60s TTL)
     if (kv) {
       c.executionCtx.waitUntil(
-        kv.put(`risk:${mint}`, JSON.stringify(score), { expirationTtl: 60 }),
+        kv.put(`risk:${mint}`, JSON.stringify(score), { expirationTtl: 1800 }),
       );
     }
 
     // Track scan for leaderboard (fire-and-forget)
-    // Use referer or x-wallet header to identify the scanner
-    const scannerWallet = c.req.header('x-wallet');
     if (kv && scannerWallet && SOLANA_ADDR_RE.test(scannerWallet)) {
       trackWalletScan(kv, scannerWallet, c.executionCtx);
     }
@@ -364,7 +562,14 @@ app.post('/v1/monitor/register', async (c) => {
   const kv = c.env.SENTINEL_KV;
   if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
 
-  let body: { wallet?: string; telegramChatId?: string; thresholdUsd?: number };
+  let body: {
+    wallet?: string;
+    telegramChatId?: string;
+    thresholdUsd?: number;
+    label?: string;
+    watchedTokenMints?: string[];
+    watchedCreatorWallets?: string[];
+  };
   try {
     body = await c.req.json();
   } catch {
@@ -381,7 +586,11 @@ app.post('/v1/monitor/register', async (c) => {
   }
 
   try {
-    const entry = await registerWallet(body.wallet, body.telegramChatId, threshold, kv);
+    const entry = await registerWallet(body.wallet, body.telegramChatId, threshold, {
+      label: body.label,
+      watchedTokenMints: Array.isArray(body.watchedTokenMints) ? body.watchedTokenMints.filter((mint) => SOLANA_ADDR_RE.test(mint)) : [],
+      watchedCreatorWallets: Array.isArray(body.watchedCreatorWallets) ? body.watchedCreatorWallets.filter((wallet) => SOLANA_ADDR_RE.test(wallet)) : [],
+    }, kv);
     return c.json({ ok: true, data: entry });
   } catch (err) {
     console.error('Monitor register error:', err);
@@ -417,7 +626,14 @@ app.post('/v1/monitor/connect', async (c) => {
     return c.json({ ok: false, error: 'Telegram bot not configured on worker' }, 503);
   }
 
-  let body: { wallet?: string; thresholdUsd?: number; telegramUsername?: string };
+  let body: {
+    wallet?: string;
+    thresholdUsd?: number;
+    telegramUsername?: string;
+    label?: string;
+    watchedTokenMints?: string[];
+    watchedCreatorWallets?: string[];
+  };
   try {
     body = await c.req.json();
   } catch {
@@ -448,7 +664,11 @@ app.post('/v1/monitor/connect', async (c) => {
   }
 
   try {
-    const entry = await registerWallet(body.wallet, resolvedChatId, threshold, kv);
+    const entry = await registerWallet(body.wallet, resolvedChatId, threshold, {
+      label: body.label,
+      watchedTokenMints: Array.isArray(body.watchedTokenMints) ? body.watchedTokenMints.filter((mint) => SOLANA_ADDR_RE.test(mint)) : [],
+      watchedCreatorWallets: Array.isArray(body.watchedCreatorWallets) ? body.watchedCreatorWallets.filter((wallet) => SOLANA_ADDR_RE.test(wallet)) : [],
+    }, kv);
 
     const shortWallet = `${body.wallet.slice(0, 4)}…${body.wallet.slice(-4)}`;
     const sent = await sendTelegramMessage({
@@ -747,6 +967,53 @@ app.post('/v1/token/launch', async (c) => {
   }
 });
 
+app.post('/v1/token/launch-guard', async (c) => {
+  let body: {
+    launchWallet?: string;
+    name?: string;
+    symbol?: string;
+    description?: string;
+    imageUrl?: string;
+    website?: string;
+    twitter?: string;
+    telegram?: string;
+    feeClaimers?: FeeClaimerEntry[];
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: 'Invalid JSON body' }, 400);
+  }
+
+  if (!body.launchWallet || !SOLANA_ADDR_RE.test(body.launchWallet)) {
+    return c.json({ ok: false, error: 'Invalid launchWallet' }, 400);
+  }
+  if (!body.name || !body.symbol || !body.description || !body.imageUrl) {
+    return c.json({ ok: false, error: 'Missing required launch metadata' }, 400);
+  }
+  if (!Array.isArray(body.feeClaimers) || body.feeClaimers.length === 0) {
+    return c.json({ ok: false, error: 'feeClaimers required' }, 400);
+  }
+
+  try {
+    const result = await evaluateLaunchGuard({
+      launchWallet: body.launchWallet,
+      name: body.name,
+      symbol: body.symbol,
+      description: body.description,
+      imageUrl: body.imageUrl,
+      website: body.website,
+      twitter: body.twitter,
+      telegram: body.telegram,
+      feeClaimers: body.feeClaimers,
+    }, c.env);
+    return c.json({ ok: true, data: result });
+  } catch (err) {
+    console.error('Launch guard error:', err);
+    return c.json({ ok: false, error: 'Failed to evaluate launch guard' }, 500);
+  }
+});
+
 // ── Wallet X-Ray (Portfolio Scanner) ─────────────────────
 
 app.get('/v1/portfolio/:wallet', async (c) => {
@@ -791,7 +1058,14 @@ app.get('/v1/tokens/feed', async (c) => {
     // Enrich with cached risk scores from KV
     const enriched = kv ? await enrichFeedWithRisk(tokens, kv) : tokens;
 
+    // If feed is sparse on scores (< 5 scored out of top 20), trigger background precompute.
+    // Cron runs every 15 min; this protects against cold-start windows.
     if (kv) {
+      const scoredCount = enriched.slice(0, 20).filter((t) => t.riskScore !== null).length;
+      if (scoredCount < 5) {
+        c.executionCtx.waitUntil(precomputeFeedRiskScores(c.env).catch(() => {}));
+      }
+
       c.executionCtx.waitUntil(
         kv.put('feed:top-scored', JSON.stringify(enriched), { expirationTtl: 30 }),
       );
@@ -1024,6 +1298,51 @@ app.get('/v1/risk/simulate-rug/:mint', async (c) => {
   }
 });
 
+app.post('/v1/proof/token', async (c) => {
+  let body: { wallet?: string; mint?: string; amountUsd?: number; scenarios?: string[] };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: 'Invalid JSON body' }, 400);
+  }
+
+  if (!body.mint || !SOLANA_ADDR_RE.test(body.mint)) {
+    return c.json({ ok: false, error: 'Invalid mint' }, 400);
+  }
+
+  const amountUsd = typeof body.amountUsd === 'number' && body.amountUsd >= 0 ? body.amountUsd : 100;
+
+  try {
+    const [simulation, screen] = await Promise.all([
+      simulateRug({ mint: body.mint, scenarios: body.scenarios as any }, c.env),
+      body.wallet && SOLANA_ADDR_RE.test(body.wallet)
+        ? screenTransaction(body.wallet, body.mint, amountUsd, c.env)
+        : Promise.resolve(null),
+    ]);
+
+    const highlights = [
+      `Worst-case scenario: ${simulation.worstCase?.scenario ?? 'none'} (${simulation.overallRisk.toUpperCase()})`,
+      `Current score: ${simulation.currentScore}/100 (${simulation.currentTier.toUpperCase()})`,
+      screen ? `Firewall verdict: ${screen.decision}` : 'Connect a wallet to include firewall proof',
+    ];
+
+    return c.json({
+      ok: true,
+      data: {
+        mint: body.mint,
+        amountUsd,
+        highlights,
+        screen,
+        simulation,
+        generatedAt: Date.now(),
+      },
+    });
+  } catch (err) {
+    console.error('Proof mode error:', err);
+    return c.json({ ok: false, error: 'Proof mode failed' }, 500);
+  }
+});
+
 // ── Embeddable Badge ─────────────────────────────────────
 
 app.get('/v1/badge/:mint', async (c) => {
@@ -1068,6 +1387,68 @@ app.get('/v1/badge/:mint', async (c) => {
   } catch (err) {
     console.error('Badge error:', err);
     return c.text('Failed to generate badge', 500);
+  }
+});
+
+// ── Interactive Embed Widget (HTML iframe) ──────────────
+
+app.get('/v1/embed/score', async (c) => {
+  const mint = c.req.query('mint') ?? '';
+  const themeQ = (c.req.query('theme') ?? 'dark').toLowerCase();
+  const theme: 'dark' | 'light' = themeQ === 'light' ? 'light' : 'dark';
+
+  if (!SOLANA_ADDR_RE.test(mint)) {
+    return c.html(
+      '<!DOCTYPE html><html><body style="font-family:sans-serif;color:#dc2626;padding:1rem">Invalid mint address</body></html>',
+      400,
+    );
+  }
+
+  const url = new URL(c.req.url);
+  const origin = `${url.protocol}//${url.host}`;
+  const kv = c.env.SENTINEL_KV;
+  const cacheKey = `embed:${theme}:${mint}`;
+
+  if (kv) {
+    const cached = await kv.get(cacheKey);
+    if (cached) {
+      return c.body(cached, 200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=60',
+        'x-cache': 'HIT',
+      });
+    }
+  }
+
+  try {
+    const score = await computeRiskScore(mint, {
+      HELIUS_API_KEY: c.env.HELIUS_API_KEY,
+      BIRDEYE_API_KEY: c.env.BIRDEYE_API_KEY,
+    });
+    const symbol = mint.slice(0, 4).toUpperCase();
+    const html = renderEmbedHTML({
+      mint,
+      symbol,
+      score: score.score,
+      tier: score.tier,
+      theme,
+      origin: 'https://sentinel-dashboard-3uy.pages.dev',
+    });
+
+    if (kv) {
+      c.executionCtx.waitUntil(
+        kv.put(cacheKey, html, { expirationTtl: 60 }),
+      );
+    }
+
+    return c.body(html, 200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'public, max-age=60',
+      'x-cache': 'MISS',
+    });
+  } catch (err) {
+    console.error('Embed error:', err);
+    return c.html('<!DOCTYPE html><html><body style="color:#dc2626;font-family:sans-serif;padding:1rem">Sentinel: failed to generate embed</body></html>', 500);
   }
 });
 
@@ -1340,7 +1721,7 @@ app.get('/v1/gate/:wallet', async (c) => {
   if (!c.env.HELIUS_API_KEY) return c.json({ ok: false, error: 'Helius not configured' }, 500);
 
   try {
-    const result = await checkTokenGate(wallet, c.env.HELIUS_API_KEY, c.env.SENTINEL_KV);
+    const result = await checkTokenGate(wallet, c.env.HELIUS_API_KEY, c.env.SENTINEL_KV, c.env.BIRDEYE_API_KEY);
     return c.json({ ok: true, data: result });
   } catch (err) {
     console.error('Token gate error:', err);
@@ -1357,7 +1738,7 @@ app.post('/v1/gate/check', async (c) => {
   const minTier = (body.requiredTier === 'whale' || body.requiredTier === 'holder') ? body.requiredTier : 'holder' as GateTier;
 
   try {
-    const result = await requireTier(body.wallet, minTier, c.env.HELIUS_API_KEY, c.env.SENTINEL_KV);
+    const result = await requireTier(body.wallet, minTier, c.env.HELIUS_API_KEY, c.env.SENTINEL_KV, c.env.BIRDEYE_API_KEY);
     return c.json({ ok: true, data: { ...result, requiredTier: minTier } });
   } catch (err) {
     console.error('Token gate check error:', err);
@@ -1373,6 +1754,41 @@ app.get('/v1/app/info', (c) => {
 
 app.get('/v1/app/fee-share', (c) => {
   return c.json({ ok: true, data: getSentFeeShareTarget() });
+});
+
+// ── $SENT Live Fee Stats ──────────────────────────────────
+
+app.get('/v1/sent/fee-stats', async (c) => {
+  if (!c.env.BIRDEYE_API_KEY) {
+    return c.json({ ok: false, error: 'Birdeye not configured' }, 503);
+  }
+
+  const kv = c.env.SENTINEL_KV;
+  const CACHE_KEY = 'sent:fee-stats';
+  const CACHE_TTL = 300; // 5 min
+
+  // Serve from cache
+  if (kv) {
+    const cached = await kv.get(CACHE_KEY, 'json');
+    if (cached) {
+      return c.json({ ok: true, data: cached }, 200, { 'x-cache': 'HIT' });
+    }
+  }
+
+  try {
+    const stats = await fetchSentFeeStats(c.env.BIRDEYE_API_KEY);
+
+    if (kv) {
+      c.executionCtx.waitUntil(
+        kv.put(CACHE_KEY, JSON.stringify(stats), { expirationTtl: CACHE_TTL }),
+      );
+    }
+
+    return c.json({ ok: true, data: stats }, 200, { 'x-cache': 'MISS' });
+  } catch (err) {
+    console.error('SENT fee-stats error:', err);
+    return c.json({ ok: false, error: 'Failed to fetch $SENT stats' }, 500);
+  }
 });
 
 // ── Swarm Intelligence ───────────────────────────────────
@@ -1402,6 +1818,40 @@ app.get('/v1/swarm/:wallet', async (c) => {
   }
   const state = await getSwarmState(wallet, c.env);
   return c.json({ ok: true, data: state });
+});
+
+// ── Token Swarm ──────────────────────────────────────────
+
+app.post('/v1/swarm/token/:mint', async (c) => {
+  const mint = c.req.param('mint');
+  if (!SOLANA_ADDR_RE.test(mint)) {
+    return c.json({ ok: false, error: 'Invalid Solana mint address' }, 400);
+  }
+  if (!c.env.ANTHROPIC_API_KEY) {
+    return c.json({ ok: false, error: 'Swarm not configured — ANTHROPIC_API_KEY missing' }, 503);
+  }
+  // $SENT gate check
+  if (c.env.HELIUS_API_KEY) {
+    const callerWallet = c.req.header('x-wallet');
+    if (!callerWallet || !SOLANA_ADDR_RE.test(callerWallet)) {
+      return c.json({ ok: false, error: 'Wallet required — connect wallet to use AI Swarm' }, 401);
+    }
+    const gate = await checkTokenGate(callerWallet, c.env.HELIUS_API_KEY, c.env.SENTINEL_KV, c.env.BIRDEYE_API_KEY);
+    if (gate.tier === 'free') {
+      const needed = gate.sentPriceUsd > 0
+        ? `$${USD_HOLDER_MIN} of $SENT (~${Math.ceil(USD_HOLDER_MIN / gate.sentPriceUsd).toLocaleString()} $SENT)`
+        : '1 $SENT';
+      return c.json({ ok: false, error: `Requires $SENT — buy at least ${needed} on Bags to unlock AI Swarm` }, 403);
+    }
+  }
+  try {
+    const result = await runTokenSwarmCycle(mint, c.env);
+    return c.json({ ok: true, data: result });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Token swarm cycle failed';
+    console.error('Token swarm cycle error:', err);
+    return c.json({ ok: false, error: msg }, 500);
+  }
 });
 
 // ── Autonomous Firewall ──────────────────────────────────
@@ -1597,8 +2047,8 @@ async function precomputeFeedRiskScores(env: Env): Promise<void> {
   if (!kv) return;
 
   const tokens = await fetchTopTokens(env.BAGS_API_KEY);
-  // Limit to top 20 to stay within CPU/rate limits
-  const batch = tokens.slice(0, 20);
+  // Top 50 so the pre-rug watcher has a wide enough base; existing cache entries are skipped.
+  const batch = tokens.slice(0, 50);
 
   for (const token of batch) {
     // Skip if already cached
@@ -1610,12 +2060,50 @@ async function precomputeFeedRiskScores(env: Env): Promise<void> {
         HELIUS_API_KEY: env.HELIUS_API_KEY,
         BIRDEYE_API_KEY: env.BIRDEYE_API_KEY,
       });
-      await kv.put(`risk:${token.mint}`, JSON.stringify(score), { expirationTtl: 300 });
+      await kv.put(`risk:${token.mint}`, JSON.stringify(score), { expirationTtl: 1800 });
     } catch (err) {
       console.error(`Feed risk precompute failed for ${token.mint}:`, err);
     }
   }
 }
+
+// ── Launch Survival Engine ──────────────────────────────
+app.post('/v1/launch/stress-test', async (c) => {
+  let body: Partial<SurvivalInput>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: 'Invalid JSON body' }, 400);
+  }
+
+  const { liquidity, lpLockHours, devWalletPct, holderCount, topHolderPct } = body;
+
+  if (
+    typeof liquidity !== 'number' ||
+    typeof lpLockHours !== 'number' ||
+    typeof devWalletPct !== 'number' ||
+    typeof holderCount !== 'number' ||
+    typeof topHolderPct !== 'number'
+  ) {
+    return c.json(
+      { ok: false, error: 'Required: liquidity, lpLockHours, devWalletPct, holderCount, topHolderPct (all numbers)' },
+      400,
+    );
+  }
+
+  const input: SurvivalInput = {
+    liquidity,
+    lpLockHours,
+    devWalletPct,
+    holderCount,
+    topHolderPct,
+    volume: typeof body.volume === 'number' ? body.volume : undefined,
+    totalTrades: typeof body.totalTrades === 'number' ? body.totalTrades : undefined,
+  };
+
+  const result = computeSurvival(input);
+  return c.json({ ok: true, ...result });
+});
 
 // ── Export with Cron Support ─────────────────────────────
 
@@ -1626,8 +2114,53 @@ export default {
 
     ctx.waitUntil(
       Promise.all([
-        // Pre-compute risk scores for top feed tokens
-        precomputeFeedRiskScores(env).catch((err) => console.error('Feed risk precompute failed:', err)),
+        // Pre-compute risk scores, THEN run the pre-rug watch against fresh scores.
+        // Sequential by design: watch reads from the KV cache that precompute just warmed.
+        (async () => {
+          try {
+            await precomputeFeedRiskScores(env);
+          } catch (err) {
+            console.error('Feed risk precompute failed:', err);
+          }
+          try {
+            const newCatchCount = await runPreRugWatch(env);
+            if (newCatchCount > 0) {
+              console.log(`Pre-rug watch: ${newCatchCount} new catch(es) recorded`);
+              // Broadcast fresh catches to Telegram channel + subscribers
+              if (env.TELEGRAM_BOT_TOKEN && env.SENTINEL_KV) {
+                const recent = await getRecentCatches(env.SENTINEL_KV, newCatchCount);
+                const freshCutoff = Date.now() - 25 * 60 * 1000; // within last 25min (cron is 15min)
+                const fresh = recent.filter((c) => c.caughtAt >= freshCutoff);
+                for (const c of fresh) {
+                  const payload: CatchPayload = {
+                    mint: c.mint,
+                    symbol: c.symbol,
+                    name: c.name,
+                    initialScore: c.initialScore,
+                    caughtScore: c.caughtScore,
+                    scoreDrop: c.scoreDrop,
+                    tierTransition: c.tierTransition,
+                    initialAt: c.initialAt,
+                    caughtAt: c.caughtAt,
+                    reason: c.reason,
+                  };
+                  // Broadcast to public channel (fire-and-forget)
+                  if (env.TELEGRAM_ALERT_CHANNEL_ID) {
+                    const { buildCatchMessage } = await import('./notify/alert-subscriptions');
+                    const msg = buildCatchMessage(payload);
+                    broadcastAlert(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_ALERT_CHANNEL_ID, msg)
+                      .catch((err) => console.error('Channel broadcast failed:', err));
+                  }
+                  // Notify personal subscribers (fire-and-forget)
+                  notifySubscribersOfCatch(env.SENTINEL_KV, env.TELEGRAM_BOT_TOKEN, payload)
+                    .catch((err) => console.error('Subscriber notify failed:', err));
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Pre-rug watch failed:', err);
+          }
+        })(),
 
         // Alert scan — broadcast LP drain alerts to Telegram channel if configured
         runAlertScan(env).then(async (newAlerts) => {
@@ -1655,3 +2188,4 @@ export default {
     );
   },
 } satisfies ExportedHandler<Env>;
+

@@ -29,22 +29,37 @@ function healthColor(score: number): string {
   return 'text-sentinel-danger';
 }
 
-function healthLabel(score: number): string {
-  if (score >= 70) return 'Healthy';
-  if (score >= 40) return 'At Risk';
-  return 'Dangerous';
+function healthLabel(score: number): { label: string; sub: string } {
+  if (score >= 80) return { label: 'Healthy',                   sub: 'Diversified with low-risk exposure' };
+  if (score >= 60) return { label: 'Moderate Exposure',         sub: 'Some risk factors present' };
+  if (score >= 40) return { label: 'Fragile Portfolio',         sub: 'Concentrated or manipulation-phase exposure' };
+  if (score >= 20) return { label: 'Toxic Exposure',            sub: 'High manipulation or collapse exposure' };
+  return              { label: 'Liquidation-Prone',          sub: 'Critical — exit positions immediately' };
 }
 
-function TokenRow({ token, onView }: { token: XRayToken; onView: (mint: string) => void }) {
+const PHASE_PILL: Record<string, string> = {
+  accumulation: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30',
+  manipulation:  'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
+  distribution:  'bg-orange-500/15 text-orange-400 border-orange-500/30',
+  collapse:      'bg-red-600/15 text-red-400 border-red-600/30',
+};
+
+function TokenRow({ token, onView, isWorst }: { token: XRayToken; onView: (mint: string) => void; isWorst?: boolean }) {
   const shortMint = `${token.mint.slice(0, 6)}...${token.mint.slice(-4)}`;
 
   return (
     <div
-      className={`flex items-center gap-4 px-4 py-3 rounded-lg border cursor-pointer hover:opacity-80 transition-opacity ${tierBg(token.tier)}`}
+      className={`flex items-center gap-4 px-4 py-3 rounded-lg border cursor-pointer hover:opacity-80 transition-opacity ${tierBg(token.tier)} ${isWorst ? 'ring-1 ring-sentinel-danger/40' : ''}`}
       onClick={() => onView(token.mint)}
     >
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-mono text-gray-300 truncate">{shortMint}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-mono text-gray-300 truncate">{shortMint}</p>
+          {isWorst && <span className="text-[9px] px-1.5 py-0.5 rounded border bg-sentinel-danger/10 text-sentinel-danger border-sentinel-danger/30 font-bold">WORST</span>}
+          {token.phase && PHASE_PILL[token.phase] && (
+            <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold ${PHASE_PILL[token.phase]}`}>{token.phase.toUpperCase()}</span>
+          )}
+        </div>
         <p className="text-xs text-gray-500">
           {token.amount.toLocaleString(undefined, { maximumFractionDigits: 4 })} tokens
         </p>
@@ -128,6 +143,7 @@ export function WalletXRayPage({ onViewToken, connectedWallet }: Props) {
 
   const flagged = result?.holdings.filter((t) => t.score !== null && t.score < 40) ?? [];
   const sorted = result?.holdings.slice().sort((a, b) => (a.score ?? 999) - (b.score ?? 999)) ?? [];
+  const maxRiskToken = result?.maxRiskToken ?? null;
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -181,9 +197,10 @@ export function WalletXRayPage({ onViewToken, connectedWallet }: Props) {
             <p className={`text-5xl font-bold ${healthColor(result.portfolioHealth)}`}>
               {result.portfolioHealth}
             </p>
-            <p className={`text-sm font-medium mt-1 ${healthColor(result.portfolioHealth)}`}>
-              {healthLabel(result.portfolioHealth)}
+            <p className={`text-sm font-semibold mt-1 ${healthColor(result.portfolioHealth)}`}>
+              {healthLabel(result.portfolioHealth).label}
             </p>
+            <p className="text-xs text-gray-500 mt-1">{healthLabel(result.portfolioHealth).sub}</p>
             <div className="flex justify-center gap-6 mt-4 text-xs text-gray-500">
               <span>{result.holdings.length} tokens scanned</span>
               <span className={result.flaggedCount > 0 ? 'text-sentinel-danger font-medium' : ''}>
@@ -191,6 +208,16 @@ export function WalletXRayPage({ onViewToken, connectedWallet }: Props) {
               </span>
             </div>
           </div>
+
+          {/* Worst asset dominance warning */}
+          {maxRiskToken && result.portfolioHealth < 60 && (
+            <div className="p-4 bg-yellow-500/5 border border-yellow-500/20 rounded-xl">
+              <p className="text-sm font-medium text-yellow-400 mb-1">⚠ Dominant risk source detected</p>
+              <p className="text-xs text-gray-400">
+                Token <span className="font-mono text-gray-300">{maxRiskToken.slice(0, 6)}...{maxRiskToken.slice(-4)}</span> contributes the highest weighted risk to your portfolio.
+              </p>
+            </div>
+          )}
 
           {/* Flagged tokens alert */}
           {flagged.length > 0 && (
@@ -212,7 +239,7 @@ export function WalletXRayPage({ onViewToken, connectedWallet }: Props) {
               </p>
               <div className="space-y-2">
                 {sorted.map((token) => (
-                  <TokenRow key={token.mint} token={token} onView={onViewToken} />
+                  <TokenRow key={token.mint} token={token} onView={onViewToken} isWorst={token.mint === maxRiskToken} />
                 ))}
               </div>
             </div>

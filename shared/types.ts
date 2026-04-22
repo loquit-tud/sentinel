@@ -20,6 +20,7 @@ export interface RiskScore {
   breakdown: RiskBreakdown;
   timestamp: number;      // Unix ms
   cached: boolean;
+  pumpSignal?: PumpSignal; // optional — present when Bags stats24h data available
 }
 
 export function tierFromScore(score: number): RiskTier {
@@ -27,6 +28,47 @@ export function tierFromScore(score: number): RiskTier {
   if (score >= 40) return 'caution';
   if (score >= 10) return 'danger';
   return 'rug';
+}
+
+// ── Pump Intelligence ────────────────────────────────────
+
+export type TokenPhase =
+  | 'accumulation'
+  | 'manipulation'
+  | 'distribution'
+  | 'collapse'
+  | 'uncertain';
+
+export type TokenTrend =
+  | 'accumulating'
+  | 'pumping'
+  | 'distributing'
+  | 'dying'
+  | 'stable';
+
+/** Derived behavioral metrics computed from Bags stats24h */
+export interface PumpDerivedMetrics {
+  buySellRatio: number;       // buyVolume / sellVolume (>1 = buy pressure)
+  tradeIntensity: number;     // numTraders / (numBuys + numSells) (low = few wallets, many trades)
+  liquidityStress: number;    // totalVolume / liquidity (high = pool under pressure)
+  whaleRisk: number;          // topHolderPct normalized 0-100
+}
+
+/** 3-component pump score decomposition */
+export interface PumpScoreBreakdown {
+  momentumScore: number;       // MS: 0-100 (is it already moving?)
+  fragilityScore: number;      // SFS: 0-100 (is it pumpable? low liquidity + concentrated)
+  coordinationScore: number;   // WCS: 0-100 (organic vs engineered?)
+}
+
+export interface PumpSignal {
+  pumpScore: number;           // 0-100 final weighted score
+  phase: TokenPhase;           // classified market phase
+  confidence: number;          // 0-100 confidence in phase classification
+  reasoning: string;           // human-readable explanation
+  breakdown: PumpScoreBreakdown;
+  derived: PumpDerivedMetrics;
+  computedAt: number;          // Unix ms
 }
 
 // ── Fee Optimizer ────────────────────────────────────────
@@ -76,6 +118,11 @@ export interface MonitoredWallet {
   registeredAt: number;          // Unix ms
   lastNotifiedAt: number;        // Unix ms (0 = never)
   lastClaimableUsd: number;      // last known amount
+  label?: string;
+  watchedTokenMints?: string[];
+  watchedCreatorWallets?: string[];
+  lastTokenScores?: Record<string, number>;
+  lastCreatorTrustScores?: Record<string, number>;
 }
 
 // ── Pending Claims (AutoClaim) ───────────────────────────
@@ -94,6 +141,15 @@ export interface PendingClaim {
 
 // ── Token Feed ───────────────────────────────────────────
 
+export interface TokenStats24h {
+  priceChange: number;     // % price change
+  buyVolume: number;       // USD
+  sellVolume: number;      // USD
+  numBuys: number;
+  numSells: number;
+  numTraders: number;
+}
+
 export interface TokenFeedItem {
   mint: string;
   name: string;
@@ -106,6 +162,9 @@ export interface TokenFeedItem {
   riskScore: number | null;
   riskTier: RiskTier | null;
   lifetimeFees: number;    // USD
+  liquidity: number;       // USD — needed for pump scoring
+  stats24h: TokenStats24h | null; // raw Bags trading stats
+  pumpSignal?: PumpSignal; // computed pump intelligence
 }
 
 // ── API Responses ────────────────────────────────────────
@@ -374,6 +433,36 @@ export interface CreatorTrustScore {
   computedAt: number;
 }
 
+// ── Launch Guard ────────────────────────────────────────
+
+export interface LaunchGuardIssue {
+  severity: 'positive' | 'warning' | 'critical';
+  title: string;
+  detail: string;
+}
+
+export interface LaunchGuardRecommendation {
+  label: string;
+  action: string;
+}
+
+export interface LaunchGuardResult {
+  launchWallet: string;
+  readinessScore: number;
+  verdict: 'ready' | 'review' | 'blocked';
+  creatorTrustScore: number;
+  creatorTrustTier: RiskTier;
+  feeConfigScore: number;
+  metadataScore: number;
+  topRecipientPct: number;
+  uniqueRecipients: number;
+  issues: LaunchGuardIssue[];
+  recommendations: LaunchGuardRecommendation[];
+  simulatedDailyFeesUsd: number;
+  simulatedMonthlyFeesUsd: number;
+  generatedAt: number;
+}
+
 // ── Pre-Rug Simulator ────────────────────────────────────
 
 export type RugScenario =
@@ -408,4 +497,15 @@ export interface RugSimulationResult {
   worstCase: ScenarioResult | null;
   overallRisk: 'low' | 'medium' | 'high' | 'critical';
   simulatedAt: number;
+}
+
+// ── Proof Mode ──────────────────────────────────────────
+
+export interface ProofModeResult {
+  mint: string;
+  amountUsd: number;
+  highlights: string[];
+  screen: FirewallScreenResult | null;
+  simulation: RugSimulationResult;
+  generatedAt: number;
 }

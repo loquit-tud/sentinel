@@ -1,18 +1,41 @@
 import { RISK_WEIGHTS } from '../../../shared/constants';
-import type { RiskScore, RiskBreakdown } from '../../../shared/types';
+import type { RiskScore, RiskBreakdown, TokenStats24h } from '../../../shared/types';
 import { tierFromScore } from '../../../shared/types';
 import { fetchRugCheckReport, analyzeRugCheck } from './rugcheck';
 import { fetchBirdeyeOverview, analyzeBirdeye } from './birdeye';
 import { fetchTopHolders, analyzeHeliusHolders } from './helius';
+import { computePumpSignal, median, mad, computeMarketSensitivity } from './phase';
+import type { PhaseInput } from './phase';
 
 export interface EngineEnv {
   HELIUS_API_KEY?: string;
   BIRDEYE_API_KEY?: string;
 }
 
+export interface MarketBaseline {
+  baselineVolume: number;
+  baselineSpread: number;
+  sensitivity: number;
+}
+
+/** Compute market baseline from a list of 24h volumes across the feed */
+export function computeMarketBaseline(volumes: number[], priceChanges: number[]): MarketBaseline {
+  return {
+    baselineVolume: median(volumes),
+    baselineSpread: mad(volumes),
+    sensitivity: computeMarketSensitivity(priceChanges),
+  };
+}
+
 export async function computeRiskScore(
   mint: string,
   env: EngineEnv,
+  stats24h?: TokenStats24h | null,
+  liquidity?: number,
+  topHolderPctFeed?: number,
+  baseline?: MarketBaseline,
+  prevLiquidity?: number,
+  prevTopHolderPct?: number,
 ): Promise<RiskScore> {
   // Fetch all sources in parallel
   // Note: Birdeye token_security requires paid plan (401 on free tier),
@@ -69,6 +92,32 @@ export async function computeRiskScore(
     breakdown.creatorReputation * RISK_WEIGHTS.creatorReputation
   );
 
+  // Compute pump signal if Bags stats24h data is available
+  let pumpSignal: RiskScore['pumpSignal'] = undefined;
+  if (stats24h) {
+    const effectiveLiquidity = liquidity ?? bird.liquidityDepth * 1000;
+    const effectiveTopHolder = topHolderPctFeed ?? breakdown.topHolderPct;
+    const lpLockedBool = (rug?.lpLocked ?? 50) >= 50;
+
+    const phaseInput: PhaseInput = {
+      priceChange24h: stats24h.priceChange,
+      buyVolume: stats24h.buyVolume,
+      sellVolume: stats24h.sellVolume,
+      numBuys: stats24h.numBuys,
+      numSells: stats24h.numSells,
+      numTraders: stats24h.numTraders,
+      liquidity: effectiveLiquidity,
+      topHolderPct: effectiveTopHolder,
+      lpLocked: lpLockedBool,
+      baselineVolume: baseline?.baselineVolume,
+      baselineSpread: baseline?.baselineSpread,
+      sensitivity: baseline?.sensitivity,
+      prevLiquidity,
+      prevTopHolderPct,
+    };
+    pumpSignal = computePumpSignal(phaseInput);
+  }
+
   return {
     mint,
     score,
@@ -76,5 +125,6 @@ export async function computeRiskScore(
     breakdown,
     timestamp: Date.now(),
     cached: false,
+    pumpSignal,
   };
 }

@@ -122,6 +122,58 @@ export function CreatorProfilePage({
             </div>
           </div>
 
+          {/* Trust verdict — hero banner (Bags-specific differentiator) */}
+          {trust && !trustLoading && (
+            <div className={`rounded-xl border p-5 ${
+              trust.trustScore >= 70 ? 'border-sentinel-safe/30 bg-sentinel-safe/5' :
+              trust.trustScore >= 40 ? 'border-sentinel-caution/30 bg-sentinel-caution/5' :
+              trust.trustScore >= 10 ? 'border-sentinel-danger/30 bg-sentinel-danger/5' :
+                                       'border-sentinel-rug/30 bg-sentinel-rug/5'
+            }`}>
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">
+                    Trust Verdict
+                  </div>
+                  <p className="text-base text-white font-medium leading-snug">{trust.verdict}</p>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className={`text-3xl font-bold ${
+                    trust.trustScore >= 70 ? 'text-sentinel-safe' :
+                    trust.trustScore >= 40 ? 'text-sentinel-caution' :
+                    trust.trustScore >= 10 ? 'text-sentinel-danger' :
+                    'text-sentinel-rug'
+                  }`}>{trust.trustScore}</div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wider">trust / 100</div>
+                </div>
+              </div>
+
+              {/* Risk flags — chip row */}
+              {trust.riskFlags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {trust.riskFlags.map((flag, i) => (
+                    <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-sentinel-rug/15 border border-sentinel-rug/30 text-sentinel-rug font-medium">
+                      ⚠ {flag}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Signals grid — 4 most important */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <SignalChip label="Rug Ratio" value={`${(trust.signals.rugRatio * 100).toFixed(0)}%`} warn={trust.signals.rugRatio > 0.2} />
+                <SignalChip label="Serial Launcher" value={trust.signals.serialLauncher ? 'YES' : 'No'} warn={trust.signals.serialLauncher} />
+                <SignalChip label="LP Removals" value={String(trust.signals.lpRemovalCount)} warn={trust.signals.lpRemovalCount > 0} />
+                <SignalChip label="Avg Lifespan" value={`${trust.signals.avgTokenLifespan}d`} warn={trust.signals.avgTokenLifespan < 7 && trust.signals.avgTokenLifespan > 0} />
+              </div>
+            </div>
+          )}
+          {trustLoading && (
+            <div className="p-4 rounded-xl border border-sentinel-border/30 bg-sentinel-surface/20 animate-pulse">
+              <p className="text-sm text-gray-500">Computing trust verdict…</p>
+            </div>
+          )}
+
           {/* Stats grid */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard label="Tokens Launched" value={String(profile.totalTokens)} />
@@ -145,52 +197,6 @@ export function CreatorProfilePage({
               }
             />
           </div>
-
-          {/* Trust Score (advanced) */}
-          {trustLoading && (
-            <div className="p-4 rounded-xl border border-sentinel-border/30 bg-sentinel-surface/20 animate-pulse">
-              <p className="text-sm text-gray-500">Computing advanced trust score…</p>
-            </div>
-          )}
-          {trust && !trustLoading && (
-            <div className="rounded-xl border border-sentinel-border/50 bg-sentinel-surface/20 overflow-hidden">
-              <div className="px-4 py-3 border-b border-sentinel-border/30 flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">🧠 Advanced Trust Score</h3>
-                <span className={`text-sm font-bold ${
-                  trust.trustScore >= 70 ? 'text-sentinel-safe' :
-                  trust.trustScore >= 40 ? 'text-sentinel-caution' :
-                  trust.trustScore >= 10 ? 'text-sentinel-danger' :
-                  'text-sentinel-rug'
-                }`}>{trust.trustScore}/100</span>
-              </div>
-              <div className="p-4 space-y-3">
-                <p className="text-sm text-gray-300">{trust.verdict}</p>
-
-                {/* Signals grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <SignalChip label="Avg Token Age" value={`${trust.signals.tokenAge}d`} warn={trust.signals.tokenAge < 7} />
-                  <SignalChip label="Rug Ratio" value={`${(trust.signals.rugRatio * 100).toFixed(0)}%`} warn={trust.signals.rugRatio > 0.2} />
-                  <SignalChip label="LP Removals" value={String(trust.signals.lpRemovalCount)} warn={trust.signals.lpRemovalCount > 0} />
-                  <SignalChip label="Mint Auth Active" value={String(trust.signals.mintAuthorityActive)} warn={trust.signals.mintAuthorityActive > 0} />
-                  <SignalChip label="Holder Conc." value={`${trust.signals.avgHolderConcentration}%`} warn={trust.signals.avgHolderConcentration > 50} />
-                  <SignalChip label="Fee Consistency" value={`${(trust.signals.feeConsistency * 100).toFixed(0)}%`} warn={false} good={trust.signals.feeConsistency > 0.5} />
-                  <SignalChip label="Avg Lifespan" value={`${trust.signals.avgTokenLifespan}d`} warn={trust.signals.avgTokenLifespan < 7} />
-                  <SignalChip label="Serial Launch" value={trust.signals.serialLauncher ? 'YES' : 'No'} warn={trust.signals.serialLauncher} />
-                </div>
-
-                {/* Risk flags */}
-                {trust.riskFlags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 pt-1">
-                    {trust.riskFlags.map((flag, i) => (
-                      <span key={i} className="text-[10px] px-2 py-1 rounded-full bg-sentinel-surface/40 border border-sentinel-border/30 text-gray-300">
-                        {flag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* Reputation Card — shareable */}
           <ReputationCard profile={profile} wallet={wallet} />

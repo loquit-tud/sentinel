@@ -9,7 +9,7 @@
  * - holder: ≥1 $SENT (priority alerts, deeper scans, auto-claim)
  * - whale: ≥10,000 $SENT (API key, custom webhooks, bulk scanning)
  */
-import { SENT_MINT } from '../../../shared/constants';
+import { SENT_MINT, BIRDEYE_API_BASE } from '../../../shared/constants';
 
 // ── Types ────────────────────────────────────────────────
 
@@ -20,6 +20,8 @@ export interface TokenGateResult {
   tier: GateTier;
   sentBalance: number;         // human-readable (not lamports)
   sentRawBalance: string;      // raw amount (string for BigInt)
+  sentValueUsd: number;        // USD value of holdings
+  sentPriceUsd: number;        // current $SENT price in USD
   eligible: boolean;           // true if tier >= required
   checkedAt: number;           // Unix ms
 }
@@ -27,8 +29,9 @@ export interface TokenGateResult {
 // ── Constants ────────────────────────────────────────────
 
 const SENT_DECIMALS = 6;
-const HOLDER_MIN = 1;            // 1 $SENT
+const HOLDER_MIN = 1;            // 1 $SENT (fallback when price unavailable)
 const WHALE_MIN = 10_000;        // 10,000 $SENT
+const USD_HOLDER_MIN = 1.0;      // $1 USD equivalent (active when Birdeye key provided)
 
 const GATE_CACHE_TTL = 300;      // 5 min cache in KV
 
@@ -42,33 +45,48 @@ export async function checkTokenGate(
   wallet: string,
   heliusApiKey: string,
   kv?: KVNamespace,
+  birdeyeApiKey?: string,
 ): Promise<TokenGateResult> {
-  // Check cache first
+  // Check cache first (cache key includes whether USD mode is active)
+  const cacheKey = `gate:${birdeyeApiKey ? 'usd' : 'raw'}:${wallet}`;
   if (kv) {
-    const cached = await kv.get(`gate:${wallet}`, 'json');
+    const cached = await kv.get(cacheKey, 'json');
     if (cached) return cached as TokenGateResult;
   }
 
-  const balance = await fetchSentBalance(wallet, heliusApiKey);
-  const humanBalance = balance / Math.pow(10, SENT_DECIMALS);
+  const [balance, sentPriceUsd] = await Promise.all([
+    fetchSentBalance(wallet, heliusApiKey),
+    birdeyeApiKey ? fetchSentPriceUsd(birdeyeApiKey) : Promise.resolve(0),
+  ]);
 
-  const tier: GateTier =
-    humanBalance >= WHALE_MIN ? 'whale' :
-    humanBalance >= HOLDER_MIN ? 'holder' :
-    'free';
+  const humanBalance = balance / Math.pow(10, SENT_DECIMALS);
+  const sentValueUsd = humanBalance * sentPriceUsd;
+
+  let tier: GateTier;
+  if (humanBalance >= WHALE_MIN) {
+    tier = 'whale';
+  } else if (birdeyeApiKey && sentPriceUsd > 0) {
+    // USD-based gate: need $1 equivalent
+    tier = sentValueUsd >= USD_HOLDER_MIN ? 'holder' : 'free';
+  } else {
+    // Fallback: 1 $SENT minimum
+    tier = humanBalance >= HOLDER_MIN ? 'holder' : 'free';
+  }
 
   const result: TokenGateResult = {
     wallet,
     tier,
     sentBalance: humanBalance,
     sentRawBalance: String(balance),
+    sentValueUsd,
+    sentPriceUsd,
     eligible: tier !== 'free',
     checkedAt: Date.now(),
   };
 
   // Cache result
   if (kv) {
-    await kv.put(`gate:${wallet}`, JSON.stringify(result), { expirationTtl: GATE_CACHE_TTL });
+    await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: GATE_CACHE_TTL });
   }
 
   return result;
@@ -81,8 +99,9 @@ export async function getWalletTier(
   wallet: string,
   heliusApiKey: string,
   kv?: KVNamespace,
+  birdeyeApiKey?: string,
 ): Promise<GateTier> {
-  const result = await checkTokenGate(wallet, heliusApiKey, kv);
+  const result = await checkTokenGate(wallet, heliusApiKey, kv, birdeyeApiKey);
   return result.tier;
 }
 
@@ -94,14 +113,35 @@ export async function requireTier(
   minTier: GateTier,
   heliusApiKey: string,
   kv?: KVNamespace,
-): Promise<{ allowed: boolean; actual: GateTier; sentBalance: number }> {
-  const result = await checkTokenGate(wallet, heliusApiKey, kv);
+  birdeyeApiKey?: string,
+): Promise<{ allowed: boolean; actual: GateTier; sentBalance: number; sentValueUsd: number }> {
+  const result = await checkTokenGate(wallet, heliusApiKey, kv, birdeyeApiKey);
   const tierRank: Record<GateTier, number> = { free: 0, holder: 1, whale: 2 };
   return {
     allowed: tierRank[result.tier] >= tierRank[minTier],
     actual: result.tier,
     sentBalance: result.sentBalance,
+    sentValueUsd: result.sentValueUsd,
   };
+}
+
+// ── Birdeye Price ────────────────────────────────────────
+
+async function fetchSentPriceUsd(birdeyeApiKey: string): Promise<number> {
+  try {
+    const res = await fetch(
+      `${BIRDEYE_API_BASE}/defi/price?address=${SENT_MINT}`,
+      {
+        headers: { 'X-API-KEY': birdeyeApiKey, 'x-chain': 'solana' },
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+    if (!res.ok) return 0;
+    const json = await res.json() as { data?: { value?: number }; success: boolean };
+    return (json.success && typeof json.data?.value === 'number') ? json.data.value : 0;
+  } catch {
+    return 0; // graceful: fallback to raw SENT count
+  }
 }
 
 // ── Helius RPC ───────────────────────────────────────────

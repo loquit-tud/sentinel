@@ -5,6 +5,10 @@ compatibility_date = "2025-04-01"
 # API keys are set as secrets (wrangler secret put)
 # For local dev, use worker/.dev.vars
 
+[vars]
+# Public traction metrics: count requests in KV (all-time + per-day, 30d TTL)
+ENABLE_KV_ANALYTICS = "1"
+
 [observability]
 enabled = true
 

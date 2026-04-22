@@ -7,16 +7,44 @@ AI risk intelligence + wallet portfolio scanner for [Bags](https://bags.fm) trad
 **$SENT**: [`Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS`](https://bags.fm/token/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS) — launched on Bags
 
 [![Live Dashboard](https://img.shields.io/badge/Dashboard-Live-06b6d4?style=flat-square)](https://sentinel-dashboard-3uy.pages.dev)
-[![API](https://img.shields.io/badge/API-v0.13.0-22c55e?style=flat-square)](https://sentinel-api.apiworkersdev.workers.dev/health)
+[![API](https://img.shields.io/badge/API-v0.14.0-22c55e?style=flat-square)](https://sentinel-api.apiworkersdev.workers.dev/health)
 [![CI](https://github.com/loquit-doru/sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/loquit-doru/sentinel/actions)
 [![DoraHacks](https://img.shields.io/badge/DoraHacks-BUIDL-purple?style=flat-square)](https://dorahacks.io/buidl/24038)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?style=flat-square)](https://typescriptlang.org)
 
 ---
 
+## Autonomous Agent Loop
+
+Sentinel is not a dashboard — it's an **autonomous agent** that runs continuously without human input.
+
+```
+Every 15 min (Cloudflare cron)
+  │
+  ├─ Fetch top 100 Bags tokens
+  ├─ Score each token (8 signals: RugCheck + Helius + Birdeye)
+  ├─ Compare to previous scores
+  │
+  ├─ Score collapsed ≥40pts or tier → danger/rug?
+  │     YES → record catch with timestamp + lead time
+  │           broadcast to @SentinelRiskAlerts (Telegram channel)
+  │           notify personal subscribers
+  │
+  └─ Update KV cache, pre-warm feed
+```
+
+**Live proof**:
+- Telegram channel: [@SentinelRiskAlerts](https://t.me/SentinelRiskAlerts) — auto-posted by the agent, no human
+- Catch log: [`GET /v1/watch/catches`](https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches) — timestamped evidence chain
+- Recorded catch: **$BAG flagged 32 min before collapse** (score 65→35, initialAt `1776801667255`, caughtAt `1776803570712`)
+
+This loop runs on Cloudflare Workers cron (`*/15 * * * *`), costs $0/month on the free tier, and has zero single points of failure.
+
+---
+
 ## What it does
 
-### 11 Pillars — fully implemented & deployed
+### 12 Pillars — fully implemented & deployed
 
 #### 1. Risk Scoring Engine (core)
 Real-time risk score **0-100** for any token on Bags. Combines 8 weighted signals from 4 data sources.
@@ -59,8 +87,11 @@ Premium access tiers based on $SENT holdings (via Helius RPC):
 - **Holder**: ≥1 $SENT — priority alerts, deeper scans, auto-claim
 - **Whale**: ≥10,000 $SENT — API key, custom webhooks, bulk scanning
 
-#### 7. Alert Feed
-Telegram alerts for risk changes, fee opportunities, and volume spikes. Per-wallet monitor registration with test pings.
+#### 7. Autonomous Telegram Alerts
+Two alert layers:
+- **@SentinelRiskAlerts** — public Telegram channel, auto-posted by the cron agent when a pre-rug catch fires
+- **Personal subscribers** — `POST /v1/alerts/subscribe` with optional wallet → get DM'd for every catch
+- Per-wallet fee monitor: register wallet + Telegram chat ID → get alerted when claimable fees cross threshold
 
 #### 8. Autonomous Firewall
 Pre-signature transaction screening — ALLOW / WARN / BLOCK decisions before your wallet signs. Auto-blocks rug-tier tokens, honeypots, and active LP drains. Per-wallet custom rules (whitelist/blocklist), configurable auto-protection settings, screening activity log, global stats.
@@ -73,6 +104,56 @@ Advanced creator reputation with 8 behavioral signals: token age patterns, seria
 
 #### 11. Pre-Rug Simulator
 "What if?" analysis for 6 rug scenarios: LP Pull, Mint Exploit, Whale Dump, Freeze Attack, Slow Rug, Honeypot Activation. Each with probability, estimated loss %, timeframe, explanation, and mitigations. Overall risk + worst-case identification.
+
+#### 12. $SENT Fee Stats
+Live fee-sharing display: 24h volume → 1% Bags fee → 30% distributed to $SENT holders. Per-holder daily earnings estimate. [`GET /v1/sent/fee-stats`](https://sentinel-api.apiworkersdev.workers.dev/v1/sent/fee-stats) — cached 5 min, powered by Birdeye.
+
+---
+
+## Bags Integration (how we're "built on Bags")
+
+Sentinel isn't just "analytics for Bags tokens" — we're a **first-class Bags partner** that consumes the Bags Public API directly from Cloudflare Workers (REST calls, no SDK because the `@bagsfm/bags-sdk` npm package assumes a long-lived Node process with `@solana/web3.js` `Connection` — we need edge-compatible fetch).
+
+| Bags API surface | Where we use it | File |
+|---|---|---|
+| `GET /token-launch/lifetime-fees/leaderboard` | Token discovery feed (top by fees) | [worker/src/feed/bags.ts](worker/src/feed/bags.ts) |
+| `GET /token-launch/fee-share/wallet/all-positions` | Auto Fee Optimizer (unclaimed fees) | [worker/src/fees/bags-fee.ts](worker/src/fees/bags-fee.ts) |
+| `POST /token-launch/fee-share/wallet/claim-all` | Unsigned claim tx builder | [worker/src/fees/bags-fee.ts](worker/src/fees/bags-fee.ts) |
+| `GET /partner/config` · `POST /partner/create` | Partner registration + fee-share | [worker/src/partner/bags-partner.ts](worker/src/partner/bags-partner.ts) |
+| `GET /partner/claim-stats` · `GET /partner/claim-txs` | Partner earnings + claims | [worker/src/partner/bags-partner.ts](worker/src/partner/bags-partner.ts) |
+| `POST /token-launch/create` | Token Launch page (UI calls proxied) | [worker/src/token/](worker/src/token/) |
+| `GET /trade/quote` · `POST /trade/build` | Swap quotes for firewall pre-screen | [worker/src/trade/swap.ts](worker/src/trade/swap.ts) |
+
+**Auth**: `x-api-key: ${BAGS_API_KEY}` header, set via `wrangler secret put BAGS_API_KEY`.
+
+**Endpoint base**: `BAGS_API_BASE` in [shared/constants.ts](shared/constants.ts) — single source of truth.
+
+**$SENT launched on Bags** — [`Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS`](https://bags.fm/token/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS). Token gating tiers check $SENT balance via Helius RPC: [worker/src/gate/sent-gate.ts](worker/src/gate).
+
+---
+
+## Evidence & Audit Trail
+
+We don't ask for trust — we give you reproducible proof.
+
+**Live Bags leaderboard scan** (refreshed every 15 min via cron):
+- Top 50 tokens scored every cycle → cached in Workers KV (30 min TTL)
+- Results file: [scripts/out/scan-summary.md](scripts/out/scan-summary.md) (regenerated on-demand)
+- Reproduce locally: `npx tsx scripts/scan-top-tokens.ts`
+
+**Current traction** (public endpoint):
+```bash
+curl https://sentinel-api.apiworkersdev.workers.dev/stats
+# => { totalRequests, byEndpoint: { risk, fees, claim, feed }, today, yesterday }
+```
+
+**Methodology audit** — for any token, inspect our score *and* the raw signals:
+```bash
+curl "https://sentinel-api.apiworkersdev.workers.dev/v1/risk/token/<mint>"
+# Returns: score, tier, breakdown { honeypot, lpLocked, mintAuthority,
+# freezeAuthority, topHolderPct, liquidityDepth, volumeHealth, creatorReputation }
+```
+Each factor traces back to its source (RugCheck, Helius DAS, Birdeye, Bags) — see [EVIDENCE.md](EVIDENCE.md) for the full audit trail and methodology validation.
 
 ---
 
@@ -136,6 +217,9 @@ sentinel/
 │       ├── InsurancePage.tsx    → Community insurance pool
 │       └── BagsNativePage.tsx   → Partner + token gate + app store
 ├── mcp-server/                  → MCP Server (23 Claude tools)
+│       ├── notify/alert-subscriptions.ts → Telegram subscriber management
+│       ├── token/sent-stats.ts  → $SENT live fee stats
+│       └── watch/               → Pre-rug catcher cron loop
 └── shared/                      → TypeScript types + constants
 ```
 

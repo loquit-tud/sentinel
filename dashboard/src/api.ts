@@ -16,13 +16,15 @@ export interface XRayToken {
   score: number | null;
   tier: string | null;
   breakdown: Record<string, number> | null;
+  phase?: string;   // pump phase (accumulation/manipulation/distribution/collapse)
 }
 
 export interface XRayResult {
   wallet: string;
   holdings: XRayToken[];
-  portfolioHealth: number;
+  portfolioHealth: number;     // non-linear: Herfindahl + phase multipliers
   flaggedCount: number;
+  maxRiskToken: string | null; // mint with highest individual risk contribution
   scannedAt: number;
 }
 
@@ -122,13 +124,18 @@ export async function registerMonitor(
   wallet: string,
   telegramChatId?: string,
   thresholdUsd?: number,
+  options?: {
+    label?: string;
+    watchedTokenMints?: string[];
+    watchedCreatorWallets?: string[];
+  },
 ): Promise<MonitoredWallet & { degraded?: boolean; persisted?: boolean; note?: string }> {
   let res: Response;
   try {
     res = await fetch(`${BASE}/monitor/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wallet, telegramChatId, thresholdUsd }),
+      body: JSON.stringify({ wallet, telegramChatId, thresholdUsd, ...options }),
     });
   } catch (err) {
     throw new Error(`Network error: ${err instanceof Error ? err.message : 'fetch failed'}`);
@@ -168,13 +175,18 @@ export async function connectMonitorAuto(
   wallet: string,
   thresholdUsd?: number,
   telegramUsername?: string,
+  options?: {
+    label?: string;
+    watchedTokenMints?: string[];
+    watchedCreatorWallets?: string[];
+  },
 ): Promise<MonitoredWallet & { degraded?: boolean; persisted?: boolean; note?: string; resolvedChatId?: string; testSent?: boolean }> {
   let res: Response;
   try {
     res = await fetch(`${BASE}/monitor/connect`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wallet, thresholdUsd, telegramUsername }),
+      body: JSON.stringify({ wallet, thresholdUsd, telegramUsername, ...options }),
     });
   } catch (err) {
     throw new Error(`Network error: ${err instanceof Error ? err.message : 'fetch failed'}`);
@@ -218,6 +230,41 @@ export async function fetchApiStats(): Promise<ApiStats | null> {
   try {
     const res = await fetch(`${API_URL}/stats`);
     const body: ApiResponse<ApiStats> = await res.json();
+    return body.ok && body.data ? body.data : null;
+  } catch {
+    return null;
+  }
+}
+
+// ── Pre-Rug Watch (evidence chain) ───────────────────────
+
+export interface PreRugCatch {
+  mint: string;
+  symbol: string;
+  name: string;
+  initialScore: number;
+  initialTier: 'safe' | 'caution' | 'danger' | 'rug';
+  initialAt: number;
+  caughtScore: number;
+  caughtTier: 'safe' | 'caution' | 'danger' | 'rug';
+  caughtAt: number;
+  scoreDrop: number;
+  tierTransition: string;
+  reason: 'score_drop' | 'tier_crash';
+}
+
+export interface WatchStats {
+  tokensWatched: number;
+  catches: number;
+  lastRunAt: number;
+  lastCatchAt: number | null;
+  avgLeadTimeMs: number;
+}
+
+export async function fetchPreRugCatches(limit = 10): Promise<{ catches: PreRugCatch[]; stats: WatchStats } | null> {
+  try {
+    const res = await fetch(`${BASE}/watch/catches?limit=${limit}`);
+    const body: ApiResponse<{ catches: PreRugCatch[]; stats: WatchStats }> = await res.json();
     return body.ok && body.data ? body.data : null;
   } catch {
     return null;
@@ -316,6 +363,35 @@ export async function triggerAlertScan(): Promise<{ newAlerts: number; alerts: R
   return body.data;
 }
 
+// ── $SENT Fee Stats ─────────────────────────────────────
+
+export interface SentFeeStats {
+  sentMint: string;
+  price: number;
+  fdv: number;
+  liquidity: number;
+  volume24hUsd: number;
+  volume7dUsd: number | null;
+  totalFeesGenerated24hUsd: number;
+  holdersShareDaily: number;
+  holderCount: number;
+  estimatedDailyPerHolder: number;
+  feeRatePct: number;
+  holderSharePct: number;
+  updatedAt: number;
+}
+
+export async function fetchSentFeeStats(): Promise<SentFeeStats | null> {
+  try {
+    const res = await fetch(`${BASE}/sent/fee-stats`);
+    if (!res.ok) return null;
+    const body: ApiResponse<SentFeeStats> = await res.json();
+    return body.ok && body.data ? body.data : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Creator Profile ──────────────────────────────────────
 
 export async function fetchCreatorProfile(wallet: string): Promise<CreatorProfile> {
@@ -379,6 +455,21 @@ export async function runSwarmCycle(wallet: string): Promise<SwarmCycleData> {
   }
   const body: ApiResponse<SwarmCycleData> = await res.json();
   if (!body.ok || !body.data) throw new Error(body.error ?? 'Swarm cycle failed');
+  return body.data;
+}
+
+export async function runTokenSwarmCycle(mint: string, wallet?: string | null): Promise<SwarmCycleData> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}/swarm/token/${mint}`, {
+      method: 'POST',
+      headers: wallet ? { 'x-wallet': wallet } : undefined,
+    });
+  } catch (err) {
+    throw new Error(`Network error: ${err instanceof Error ? err.message : 'fetch failed'}`);
+  }
+  const body: ApiResponse<SwarmCycleData> = await res.json();
+  if (!body.ok || !body.data) throw new Error(body.error ?? 'Token swarm cycle failed');
   return body.data;
 }
 
@@ -482,6 +573,55 @@ export async function createLaunchTransaction(params: {
   return body.data;
 }
 
+export interface LaunchGuardIssue {
+  severity: 'positive' | 'warning' | 'critical';
+  title: string;
+  detail: string;
+}
+
+export interface LaunchGuardRecommendation {
+  label: string;
+  action: string;
+}
+
+export interface LaunchGuardData {
+  launchWallet: string;
+  readinessScore: number;
+  verdict: 'ready' | 'review' | 'blocked';
+  creatorTrustScore: number;
+  creatorTrustTier: string;
+  feeConfigScore: number;
+  metadataScore: number;
+  topRecipientPct: number;
+  uniqueRecipients: number;
+  issues: LaunchGuardIssue[];
+  recommendations: LaunchGuardRecommendation[];
+  simulatedDailyFeesUsd: number;
+  simulatedMonthlyFeesUsd: number;
+  generatedAt: number;
+}
+
+export async function fetchLaunchGuard(params: {
+  launchWallet: string;
+  name: string;
+  symbol: string;
+  description: string;
+  imageUrl: string;
+  website?: string;
+  twitter?: string;
+  telegram?: string;
+  feeClaimers: FeeClaimerEntry[];
+}): Promise<LaunchGuardData> {
+  const res = await fetch(`${BASE}/token/launch-guard`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const body: ApiResponse<LaunchGuardData> = await res.json();
+  if (!body.ok || !body.data) throw new Error(body.error ?? 'Failed to run launch guard');
+  return body.data;
+}
+
 // ── Partner Integration ──────────────────────────────────
 
 export interface PartnerConfigData {
@@ -549,6 +689,8 @@ export interface TokenGateData {
   tier: GateTier;
   sentBalance: number;
   sentRawBalance: string;
+  sentValueUsd: number;    // USD value of holdings
+  sentPriceUsd: number;    // current $SENT price
   eligible: boolean;
   checkedAt: number;
 }
@@ -740,6 +882,31 @@ export async function simulateFeeShare(params: {
   } catch (err) { throw new Error(`Network error: ${err instanceof Error ? err.message : 'fetch failed'}`); }
   const body: ApiResponse<FeeSimulationResult> = await res.json();
   if (!body.ok || !body.data) throw new Error(body.error ?? 'Failed to simulate fees');
+  return body.data;
+}
+
+export interface ProofModeData {
+  mint: string;
+  amountUsd: number;
+  highlights: string[];
+  screen: FirewallScreenResult | null;
+  simulation: RugSimulationResult;
+  generatedAt: number;
+}
+
+export async function fetchProofMode(params: {
+  mint: string;
+  wallet?: string | null;
+  amountUsd?: number;
+  scenarios?: string[];
+}): Promise<ProofModeData> {
+  const res = await fetch(`${BASE}/proof/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const body: ApiResponse<ProofModeData> = await res.json();
+  if (!body.ok || !body.data) throw new Error(body.error ?? 'Failed to run proof mode');
   return body.data;
 }
 
@@ -1014,4 +1181,44 @@ export async function simulateRugScenarios(mint: string): Promise<RugSimulationR
   const body: ApiResponse<RugSimulationResult> = await res.json();
   if (!body.ok || !body.data) throw new Error(body.error ?? 'Simulation failed');
   return body.data;
+}
+
+// ── Launch Survival Engine ───────────────────────────────
+
+export interface AttackScenario {
+  name: string;
+  triggered: boolean;
+  severity: number;
+  explanation: string;
+}
+
+export interface SurvivalResult {
+  survivalScore: number;
+  survivalLabel: 'Safe' | 'Vulnerable' | 'High Risk' | 'Critical';
+  scenarios: {
+    sniper: AttackScenario;
+    dump: AttackScenario;
+    wash: AttackScenario;
+  };
+  worstScenario: 'sniper' | 'dump' | 'wash' | null;
+  recommendation: string;
+}
+
+export async function runStressTest(input: {
+  liquidity: number;
+  lpLockHours: number;
+  devWalletPct: number;
+  holderCount: number;
+  topHolderPct: number;
+  volume?: number;
+  totalTrades?: number;
+}): Promise<SurvivalResult> {
+  const res = await fetch(`${BASE}/launch/stress-test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const body = await res.json() as { ok: boolean; error?: string } & Partial<SurvivalResult>;
+  if (!body.ok) throw new Error(body.error ?? 'Stress test failed');
+  return body as SurvivalResult;
 }

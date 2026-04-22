@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { RiskScore, RiskBreakdown } from '../../../shared/types';
+import type { RiskScore, RiskBreakdown, TokenPhase } from '../../../shared/types';
 import { ScoreGauge, TierBadge, BreakdownBar } from '../components/RiskDisplay';
 import { fetchRiskScore, getShareCardUrl, buildTweetUrl, getSharePageUrl } from '../api';
 
@@ -20,6 +20,90 @@ const TIER_DESCRIPTIONS: Record<string, { title: string; desc: string }> = {
   danger: { title: 'High Risk', desc: 'Multiple red flags identified. Significant chance of loss.' },
   rug: { title: 'Likely Scam', desc: 'Critical risk indicators. Extremely high probability of rug pull.' },
 };
+
+const PHASE_CONFIG: Partial<Record<TokenPhase, { label: string; color: string; bg: string; border: string; icon: string; description: string }>> = {
+  accumulation: {
+    label: 'Accumulation',
+    color: 'text-cyan-400',
+    bg: 'bg-cyan-500/10',
+    border: 'border-cyan-500/25',
+    icon: '🎯',
+    description: 'Quiet positioning detected — potential pre-move setup. Buy pressure balanced, liquidity stable.',
+  },
+  manipulation: {
+    label: 'Manipulation',
+    color: 'text-yellow-400',
+    bg: 'bg-yellow-500/10',
+    border: 'border-yellow-500/25',
+    icon: '⚡',
+    description: 'Few wallets controlling price movement. Low trader diversity with high price impact.',
+  },
+  distribution: {
+    label: 'Distribution',
+    color: 'text-orange-400',
+    bg: 'bg-orange-500/10',
+    border: 'border-orange-500/25',
+    icon: '📤',
+    description: 'Smart money exiting into retail liquidity. Sell pressure exceeds buy pressure.',
+  },
+  collapse: {
+    label: 'Collapse',
+    color: 'text-red-400',
+    bg: 'bg-red-600/10',
+    border: 'border-red-600/30',
+    icon: '💀',
+    description: 'Active exit event. Liquidity draining rapidly. Avoid.',
+  },
+  uncertain: {
+    label: 'Uncertain',
+    color: 'text-gray-400',
+    bg: 'bg-gray-500/10',
+    border: 'border-gray-500/20',
+    icon: '❓',
+    description: 'Insufficient signal data for confident classification.',
+  },
+};
+
+function PumpIntelligenceCard({ signal }: { signal: NonNullable<RiskScore['pumpSignal']> }) {
+  const phase = PHASE_CONFIG[signal.phase] ?? PHASE_CONFIG.uncertain!;
+
+  return (
+    <div className="bg-sentinel-surface border border-sentinel-border rounded-xl p-6 animate-fade-in">
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">⚡ Pump Intelligence</h3>
+        <span className="text-[10px] text-gray-600">confidence {signal.confidence}%</span>
+      </div>
+
+      {/* Phase banner */}
+      <div className={`flex items-center gap-3 p-3 rounded-lg border mb-5 ${phase.bg} ${phase.border}`}>
+        <span className="text-xl">{phase.icon}</span>
+        <div>
+          <p className={`text-sm font-bold ${phase.color}`}>{phase.label} Phase</p>
+          <p className="text-xs text-gray-400 mt-0.5">{phase.description}</p>
+        </div>
+        <div className={`ml-auto text-2xl font-mono font-bold ${phase.color}`}>{signal.pumpScore}</div>
+      </div>
+
+      {/* Reasoning */}
+      <p className="text-xs text-gray-400 leading-relaxed mb-5 italic">"{signal.reasoning}"</p>
+
+      {/* Sub-scores */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: 'Momentum',      value: signal.breakdown.momentumScore,     desc: 'Is it already moving?' },
+          { label: 'Fragility',     value: signal.breakdown.fragilityScore,    desc: 'Is it pumpable?' },
+          { label: 'Coordination',  value: signal.breakdown.coordinationScore, desc: 'Organic or engineered?' },
+        ].map(({ label, value, desc }) => (
+          <div key={label} className="bg-black/20 rounded-lg p-3 text-center">
+            <p className="text-lg font-mono font-bold text-white">{value}</p>
+            <p className="text-[10px] font-semibold text-gray-300 mt-0.5">{label}</p>
+            <p className="text-[9px] text-gray-600 mt-0.5">{desc}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function RiskDetailPage({ mint, onBack, connectedWallet }: { mint: string; onBack: () => void; connectedWallet?: string | null }) {
   const [score, setScore] = useState<RiskScore | null>(null);
@@ -177,6 +261,9 @@ export function RiskDetailPage({ mint, onBack, connectedWallet }: { mint: string
               ))}
             </div>
           </div>
+
+          {/* Pump Intelligence card */}
+          {score.pumpSignal && <PumpIntelligenceCard signal={score.pumpSignal} />}
 
           {/* Footer info */}
           <div className="flex items-center justify-between text-xs text-gray-600 px-1">

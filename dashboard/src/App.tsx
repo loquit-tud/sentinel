@@ -1,43 +1,30 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import type { TokenFeedItem } from '../../shared/types';
 import { SearchBar } from './components/SearchBar';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { FeedPage } from './pages/FeedPage';
 import { RiskDetailPage } from './pages/RiskDetailPage';
-import { WalletXRayPage } from './pages/WalletXRayPage';
-import { FeePage } from './pages/FeePage';
-import { AlertFeedPage } from './pages/AlertFeedPage';
-import { CreatorProfilePage } from './pages/CreatorProfilePage';
 import { LandingPage } from './pages/LandingPage';
 import { ClaimPage } from './pages/ClaimPage';
-import BagsNativePage from './pages/BagsNativePage';
-import { SwarmPage } from './pages/SwarmPage';
-import { MonitorPage } from './pages/MonitorPage';
-import { FirewallPage } from './pages/FirewallPage';
-import { LeaderboardPage } from './pages/LeaderboardPage';
-import { FeeAnalyticsPage } from './pages/FeeAnalyticsPage';
-import { InsurancePage } from './pages/InsurancePage';
-import { SimulatorPage } from './pages/SimulatorPage';
 import { fetchTokenFeed } from './api';
+
+// Lazy-loaded heavy/secondary pages — split out of main bundle
+const WalletXRayPage     = lazy(() => import('./pages/WalletXRayPage').then(m => ({ default: m.WalletXRayPage })));
+const AlertFeedPage      = lazy(() => import('./pages/AlertFeedPage').then(m => ({ default: m.AlertFeedPage })));
+const CreatorProfilePage = lazy(() => import('./pages/CreatorProfilePage').then(m => ({ default: m.CreatorProfilePage })));
+const TokenLaunchPage    = lazy(() => import('./pages/TokenLaunchPage').then(m => ({ default: m.TokenLaunchPage })));
 
 type View =
   | { page: 'landing' }
   | { page: 'feed' }
   | { page: 'risk'; mint: string }
   | { page: 'xray' }
-  | { page: 'fees' }
   | { page: 'alerts' }
   | { page: 'creator'; wallet: string }
   | { page: 'claim'; claimId: string }
-  | { page: 'bags' }
-  | { page: 'swarm' }
-  | { page: 'monitor' }
-  | { page: 'firewall' }
-  | { page: 'leaderboard' }
-  | { page: 'fee-analytics' }
-  | { page: 'insurance' }
-  | { page: 'simulator' };
+  | { page: 'token-launch' };
 
 function SentinelLogo({ size = 28 }: { size?: number }) {
   return (
@@ -56,31 +43,25 @@ function SentinelLogo({ size = 28 }: { size?: number }) {
   );
 }
 
-type TabId = 'discover' | 'xray' | 'alerts' | 'fees' | 'swarm' | 'monitor' | 'firewall' | 'bags' | 'leaderboard' | 'fee-analytics' | 'insurance' | 'simulator';
+type TabId = 'discover' | 'xray' | 'alerts' | 'token-launch';
 
+// CORE — the one Bags-native pillar. Always visible.
 const PRIMARY_TABS: { id: TabId; label: string }[] = [
   { id: 'discover', label: 'Discovery' },
-  { id: 'xray',     label: 'Wallet X-Ray' },
-  { id: 'fees',     label: 'AutoClaim' },
-  { id: 'alerts',   label: 'Risk Alerts' },
 ];
 
+// SECONDARY — Bags-native tools + bonus utility. Hidden in "More".
 const MORE_TABS: { id: TabId; label: string }[] = [
-  { id: 'swarm',    label: '🤖 AI Swarm' },
-  { id: 'monitor',  label: '📡 Monitor' },
-  { id: 'leaderboard', label: '🏆 Leaderboard' },
-  { id: 'fee-analytics', label: '📊 Fee Intel' },
-  { id: 'simulator', label: '🧪 Simulator' },
-  { id: 'insurance', label: '🏦 Insurance' },
-  { id: 'firewall', label: '🛡️ Firewall' },
-  { id: 'bags',     label: 'Bags Native' },
+  { id: 'alerts',       label: '🎯 Bags Token Monitor' },
+  { id: 'token-launch', label: '🚀 Launch Guard' },
+  { id: 'xray',         label: '🔍 Wallet X-Ray' },
 ];
 
 function NavTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
-      className={`px-3.5 py-1.5 text-sm font-medium rounded-lg transition-all ${
+      className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all whitespace-nowrap ${
         active
           ? 'bg-sentinel-accent/15 text-sentinel-accent border border-sentinel-accent/25'
           : 'text-gray-500 hover:text-gray-300 hover:bg-white/5 border border-transparent'
@@ -88,6 +69,20 @@ function NavTab({ active, onClick, children }: { active: boolean; onClick: () =>
     >
       {children}
     </button>
+  );
+}
+
+function PageLoader() {
+  return (
+    <div className="space-y-3 animate-fade-in">
+      <div className="h-8 w-1/3 rounded-md bg-gradient-to-r from-sentinel-border/30 via-sentinel-border/60 to-sentinel-border/30 bg-[length:200%_100%] animate-shimmer" />
+      <div className="h-32 rounded-xl bg-gradient-to-r from-sentinel-border/20 via-sentinel-border/40 to-sentinel-border/20 bg-[length:200%_100%] animate-shimmer" />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {[1,2,3].map(i => (
+          <div key={i} className="h-24 rounded-xl bg-gradient-to-r from-sentinel-border/20 via-sentinel-border/40 to-sentinel-border/20 bg-[length:200%_100%] animate-shimmer" style={{ animationDelay: `${i*120}ms` }} />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -143,24 +138,16 @@ export function App() {
   const handleSearch = (mint: string) => setView({ page: 'risk', mint });
   const goFeed     = () => setView({ page: 'feed' });
   const goXRay     = () => setView({ page: 'xray' });
-  const goFees     = () => setView({ page: 'fees' });
   const goAlerts   = () => setView({ page: 'alerts' });
   const goCreator  = (wallet: string) => setView({ page: 'creator', wallet });
-  const goBags     = () => setView({ page: 'bags' });
-  const goSwarm    = () => setView({ page: 'swarm' });
-  const goMonitor  = () => setView({ page: 'monitor' });
-  const goFirewall = () => setView({ page: 'firewall' });
-  const goLeaderboard = () => setView({ page: 'leaderboard' });
-  const goFeeAnalytics = () => setView({ page: 'fee-analytics' });
-  const goInsurance = () => setView({ page: 'insurance' });
-  const goSimulator = () => setView({ page: 'simulator' });
+  const goTokenLaunch = () => setView({ page: 'token-launch' });
 
   const tabGoHandlers: Record<TabId, () => void> = {
-    discover: goFeed, xray: goXRay, alerts: goAlerts, fees: goFees,
-    swarm: goSwarm, monitor: goMonitor, firewall: goFirewall, bags: goBags, leaderboard: goLeaderboard, 'fee-analytics': goFeeAnalytics, insurance: goInsurance, simulator: goSimulator,
+    discover: goFeed, xray: goXRay, alerts: goAlerts,
+    'token-launch': goTokenLaunch,
   };
 
-  if (view.page === 'landing') return <LandingPage onLaunch={goFeed} />;
+  if (view.page === 'landing') return <LandingPage onLaunch={goFeed} onScanToken={handleSearch} />;
 
   if (view.page === 'claim') {
     return (
@@ -168,24 +155,16 @@ export function App() {
         claimId={view.claimId}
         onDone={() => {
           window.history.replaceState({}, '', window.location.pathname);
-          goFees();
+          goFeed();
         }}
       />
     );
   }
 
   const activeTab: TabId =
-    view.page === 'fees'                              ? 'fees'     :
-    view.page === 'alerts' || view.page === 'creator' ? 'alerts'   :
-    view.page === 'xray'                              ? 'xray'     :
-    view.page === 'swarm'                             ? 'swarm'    :
-    view.page === 'monitor'                           ? 'monitor'   :
-    view.page === 'firewall'                          ? 'firewall'  :
-    view.page === 'leaderboard'                       ? 'leaderboard' :
-    view.page === 'fee-analytics'                     ? 'fee-analytics' :
-    view.page === 'insurance'                          ? 'insurance' :
-    view.page === 'simulator'                          ? 'simulator' :
-    view.page === 'bags'                              ? 'bags'     :
+    view.page === 'alerts' || view.page === 'creator' ? 'alerts'        :
+    view.page === 'xray'                              ? 'xray'          :
+    view.page === 'token-launch'                      ? 'token-launch'  :
     'discover';
 
   const activeInMore = MORE_TABS.some(t => t.id === activeTab);
@@ -194,16 +173,13 @@ export function App() {
     <div className="min-h-screen flex flex-col">
       {/* Header */}
       <header className="border-b border-sentinel-border/50 px-4 sm:px-6 py-3 flex items-center justify-between backdrop-blur-md bg-sentinel-bg/90 sticky top-0 z-20">
-        <button onClick={goFeed} className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
+        <button onClick={goFeed} className="flex items-center gap-2 hover:opacity-90 transition-opacity group shrink-0">
           <SentinelLogo size={28} />
-          <div>
-            <h1 className="text-base font-bold leading-tight tracking-tight">Sentinel</h1>
-            <p className="text-[9px] text-gray-600 leading-tight tracking-widest uppercase">Don't trade blind</p>
-          </div>
+          <h1 className="text-base font-bold leading-tight tracking-tight bg-gradient-to-r from-sentinel-accent via-cyan-300 to-sentinel-accent-2 bg-clip-text text-transparent">Sentinel</h1>
         </button>
 
         {/* Primary nav pills — desktop */}
-        <nav className="hidden md:flex items-center gap-1">
+        <nav className="hidden md:flex items-center gap-0.5 flex-1 justify-center min-w-0">
           {PRIMARY_TABS.map(tab => (
             <NavTab key={tab.id} active={activeTab === tab.id} onClick={tabGoHandlers[tab.id]}>
               {tab.label}
@@ -214,19 +190,19 @@ export function App() {
           <div className="relative" ref={moreRef}>
             <button
               onClick={() => setMoreOpen(o => !o)}
-              className={`px-3.5 py-1.5 text-sm font-medium rounded-lg transition-all flex items-center gap-1 ${
+              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all flex items-center gap-1 whitespace-nowrap ${
                 activeInMore
                   ? 'bg-sentinel-accent/15 text-sentinel-accent border border-sentinel-accent/25'
                   : 'text-gray-500 hover:text-gray-300 hover:bg-white/5 border border-transparent'
               }`}
             >
               {activeInMore ? MORE_TABS.find(t => t.id === activeTab)?.label : 'More'}
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" className={`transition-transform ${moreOpen ? 'rotate-180' : ''}`}>
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="currentColor" className={`transition-transform ${moreOpen ? 'rotate-180' : ''}`}>
                 <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </button>
             {moreOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-44 bg-sentinel-surface border border-sentinel-border/60 rounded-xl shadow-xl shadow-black/40 py-1 z-30 animate-fade-in">
+              <div className="absolute right-0 top-full mt-1.5 w-48 bg-sentinel-surface border border-sentinel-border/60 rounded-xl shadow-xl shadow-black/40 py-1 z-30 animate-fade-in">
                 {MORE_TABS.map(tab => (
                   <button
                     key={tab.id}
@@ -245,25 +221,22 @@ export function App() {
           </div>
         </nav>
 
-        <div className="flex items-center gap-3">
-          {tokens.length > 0 && (
-            <span className="text-xs text-gray-600 hidden lg:block">{tokens.length} tokens</span>
-          )}
+        <div className="flex items-center gap-2 shrink-0">
           <a
             href="https://bags.fm"
             target="_blank"
             rel="noopener"
-            className="text-xs text-gray-500 hover:text-sentinel-accent transition-colors px-2.5 py-1.5 rounded-lg border border-sentinel-border/50 hover:border-sentinel-accent/30 hidden sm:block"
+            className="text-xs text-gray-500 hover:text-sentinel-accent transition-colors px-2.5 py-1.5 rounded-lg border border-sentinel-border/50 hover:border-sentinel-accent/30 hidden lg:block"
           >
             bags.fm ↗
           </a>
-          <WalletMultiButton className="!bg-sentinel-accent/15 !border !border-sentinel-accent/25 !rounded-lg !h-9 !text-xs !font-medium !text-sentinel-accent hover:!bg-sentinel-accent/25 !transition-all" />
+          <WalletMultiButton className="!bg-sentinel-accent/15 !border !border-sentinel-accent/25 !rounded-lg !h-9 !text-xs !font-medium !text-sentinel-accent hover:!bg-sentinel-accent/25 !transition-all !px-3" />
         </div>
       </header>
 
-      {/* Mobile nav — horizontal scroll pills */}
+      {/* Mobile nav — horizontal scroll pills (core only; secondary hidden behind "More" desktop) */}
       <div className="md:hidden px-4 py-2 border-b border-sentinel-border/30 bg-sentinel-surface/10 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
-        {[...PRIMARY_TABS, ...MORE_TABS].map(tab => (
+        {PRIMARY_TABS.map(tab => (
           <button
             key={tab.id}
             onClick={tabGoHandlers[tab.id]}
@@ -287,30 +260,26 @@ export function App() {
 
       {/* Content */}
       <main className="flex-1 px-4 sm:px-6 py-6 max-w-5xl mx-auto w-full">
-        {view.page === 'feed' && (
-          <>
-            {feedError && !feedLoading && (
-              <div className="mb-4 p-3 bg-sentinel-danger/5 border border-sentinel-danger/20 rounded-lg flex items-center justify-between">
-                <p className="text-sm text-gray-400">Failed to load token feed.</p>
-                <button onClick={loadFeed} className="text-xs text-sentinel-accent hover:underline">Retry</button>
-              </div>
+        <ErrorBoundary key={view.page}>
+          <Suspense fallback={<PageLoader />}>
+            {view.page === 'feed' && (
+              <>
+                {feedError && !feedLoading && (
+                  <div className="mb-4 p-3 bg-sentinel-danger/5 border border-sentinel-danger/20 rounded-lg flex items-center justify-between">
+                    <p className="text-sm text-gray-400">Failed to load token feed.</p>
+                    <button onClick={loadFeed} className="text-xs text-sentinel-accent hover:underline">Retry</button>
+                  </div>
+                )}
+                <FeedPage tokens={tokens} loading={feedLoading} onSelectToken={handleSearch} />
+              </>
             )}
-            <FeedPage tokens={tokens} loading={feedLoading} onSelectToken={handleSearch} />
-          </>
-        )}
-        {view.page === 'risk'     && <RiskDetailPage mint={view.mint} onBack={goFeed} connectedWallet={connectedWallet} />}
-        {view.page === 'xray'     && <WalletXRayPage onViewToken={handleSearch} connectedWallet={connectedWallet} />}
-        {view.page === 'fees'     && <FeePage />}
-        {view.page === 'alerts'   && <AlertFeedPage onViewToken={handleSearch} onViewCreator={goCreator} />}
-        {view.page === 'creator'  && <CreatorProfilePage wallet={view.wallet} onBack={goAlerts} onViewToken={handleSearch} />}
-        {view.page === 'swarm'    && <SwarmPage connectedWallet={connectedWallet} />}
-        {view.page === 'monitor'  && <MonitorPage connectedWallet={connectedWallet} />}
-        {view.page === 'firewall' && <FirewallPage connectedWallet={connectedWallet} />}
-        {view.page === 'leaderboard' && <LeaderboardPage />}
-        {view.page === 'fee-analytics' && <FeeAnalyticsPage connectedWallet={connectedWallet} />}
-        {view.page === 'insurance' && <InsurancePage connectedWallet={connectedWallet} />}
-        {view.page === 'simulator' && <SimulatorPage onViewToken={handleSearch} />}
-        {view.page === 'bags'     && <BagsNativePage connectedWallet={connectedWallet} />}
+            {view.page === 'risk'     && <RiskDetailPage mint={view.mint} onBack={goFeed} connectedWallet={connectedWallet} />}
+            {view.page === 'xray'     && <WalletXRayPage onViewToken={handleSearch} connectedWallet={connectedWallet} />}
+            {view.page === 'alerts'   && <AlertFeedPage onViewToken={handleSearch} onViewCreator={goCreator} />}
+            {view.page === 'creator'  && <CreatorProfilePage wallet={view.wallet} onBack={goAlerts} onViewToken={handleSearch} />}
+            {view.page === 'token-launch' && <TokenLaunchPage />}
+          </Suspense>
+        </ErrorBoundary>
       </main>
 
       {/* Footer */}

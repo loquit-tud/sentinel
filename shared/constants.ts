@@ -43,3 +43,54 @@ export const SENT_MINT = 'Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS';
 // ── Insurance Pool ───────────────────────────────────────
 
 export const INSURANCE_POOL_WALLET = '4a6fi8i4Lr1TKNMUmProRzr958X4w6ErhCaui92QXFva';
+
+// ── Pump Intelligence ─────────────────────────────────────
+
+/** Pump Score component weights — must sum to 1.0 */
+export const PUMP_WEIGHTS = {
+  momentum:     0.35,  // MS — "is it already moving?"
+  fragility:    0.35,  // SFS — "is it pumpable?"
+  coordination: 0.30,  // WCS — "organic or engineered?"
+} as const;
+
+/** Momentum sub-weights */
+export const MOMENTUM_WEIGHTS = {
+  volumeZ:     0.50,
+  priceChange: 0.30,
+  tradeCount:  0.20,
+} as const;
+
+/** Fragility sub-weights */
+export const FRAGILITY_WEIGHTS = {
+  liquidityInverse: 0.40,
+  topHolderConc:    0.30,
+  lpRisk:           0.30,
+} as const;
+
+/** Coordination sub-weights */
+export const COORDINATION_WEIGHTS = {
+  buySellPressure:       0.40,
+  tradeIntensityInverse: 0.30,
+  whaleRisk:             0.30,
+} as const;
+
+/** Phase classification thresholds */
+export const PHASE_THRESHOLDS = {
+  // COLLAPSE
+  collapseMinLiquidityDropPct: 30,   // liquidity must drop >30%
+  collapsePriceChangeMax:      -15,  // priceChange < -15%
+  collapseSellBuyRatio:        1.5,  // sellVol > buyVol * 1.5
+
+  // DISTRIBUTION
+  distributionMinPriceChange:  0,    // priceChange > 0
+  distributionSellBuyMin:      1.0,  // sellVol > buyVol
+
+  // MANIPULATION
+  manipulationPriceChangeMin:  20,   // priceChange > +20%
+  manipulationTradeIntMax:     0.4,  // tradeIntensity < 0.4
+  manipulationLiquidityMax:    50_000, // liquidity < $50K = "low"
+
+  // ACCUMULATION
+  accumulationPriceChangeMax:  10,   // priceChange < +10%
+  accumulationBuySellTolerance: 0.2, // buyVol within ±20% of sellVol
+} as const;

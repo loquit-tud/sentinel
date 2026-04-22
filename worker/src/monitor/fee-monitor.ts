@@ -1,6 +1,8 @@
 import type { MonitoredWallet } from '../../../shared/types';
 import { fetchSmartFees } from '../fees/smart-fees';
-import { sendTelegramMessage, buildFeeAlertMessage } from '../notify/telegram';
+import { computeRiskScore } from '../risk/engine';
+import { computeCreatorTrustScore } from '../creator/trust-score';
+import { sendTelegramMessage, buildFeeAlertMessage, buildGuardianTokenMessage, buildGuardianCreatorMessage } from '../notify/telegram';
 import { prepareClaim } from '../claims/pending-claims';
 
 const DASHBOARD_URL = 'https://sentinel-dashboard-3uy.pages.dev';
@@ -43,6 +45,11 @@ export async function registerWallet(
   wallet: string,
   telegramChatId: string | undefined,
   thresholdUsd: number,
+  options: {
+    label?: string;
+    watchedTokenMints?: string[];
+    watchedCreatorWallets?: string[];
+  } | undefined,
   kv: KVNamespace,
 ): Promise<MonitoredWallet> {
   const existingRaw = await kv.get(`${KV_PREFIX}${wallet}`);
@@ -56,7 +63,10 @@ export async function registerWallet(
     existing &&
     existing.wallet === wallet &&
     existing.telegramChatId === nextChatId &&
-    existing.autoClaimThresholdUsd === nextThreshold
+    existing.autoClaimThresholdUsd === nextThreshold &&
+    existing.label === options?.label &&
+    JSON.stringify(existing.watchedTokenMints ?? []) === JSON.stringify(options?.watchedTokenMints ?? []) &&
+    JSON.stringify(existing.watchedCreatorWallets ?? []) === JSON.stringify(options?.watchedCreatorWallets ?? [])
   ) {
     return existing;
   }
@@ -68,6 +78,11 @@ export async function registerWallet(
     registeredAt: existing?.registeredAt ?? Date.now(),
     lastNotifiedAt: existing?.lastNotifiedAt ?? 0,
     lastClaimableUsd: existing?.lastClaimableUsd ?? 0,
+    label: options?.label,
+    watchedTokenMints: options?.watchedTokenMints ?? existing?.watchedTokenMints ?? [],
+    watchedCreatorWallets: options?.watchedCreatorWallets ?? existing?.watchedCreatorWallets ?? [],
+    lastTokenScores: existing?.lastTokenScores ?? {},
+    lastCreatorTrustScores: existing?.lastCreatorTrustScores ?? {},
   };
 
   try {
@@ -174,6 +189,71 @@ export async function runFeeMonitorScan(env: MonitorEnv): Promise<{
         entry.lastNotifiedAt !== prevLastNotified;
 
       if (changed) {
+        await kv.put(`${KV_PREFIX}${entry.wallet}`, JSON.stringify(entry), {
+          expirationTtl: 86400 * 30,
+        });
+      }
+
+      const watchedTokens = entry.watchedTokenMints ?? [];
+      for (const mint of watchedTokens) {
+        if (!mint) continue;
+        const risk = await computeRiskScore(mint, env as Parameters<typeof computeRiskScore>[1]);
+        const previousScore = entry.lastTokenScores?.[mint];
+        const tokenChanged = typeof previousScore === 'number' ? previousScore - risk.score >= 20 : false;
+        const tokenCritical = risk.tier === 'danger' || risk.tier === 'rug';
+
+        if ((tokenCritical || tokenChanged) && entry.telegramChatId && env.TELEGRAM_BOT_TOKEN) {
+          const sent = await sendTelegramMessage({
+            botToken: env.TELEGRAM_BOT_TOKEN,
+            chatId: entry.telegramChatId,
+            message: buildGuardianTokenMessage({
+              label: entry.label,
+              tokenMint: mint,
+              riskScore: risk.score,
+              riskTier: risk.tier,
+              previousScore,
+              dashboardUrl: DASHBOARD_URL,
+            }),
+          });
+          if (sent) notificationsSent++;
+        }
+
+        entry.lastTokenScores = {
+          ...(entry.lastTokenScores ?? {}),
+          [mint]: risk.score,
+        };
+      }
+
+      const watchedCreators = entry.watchedCreatorWallets ?? [];
+      for (const creatorWallet of watchedCreators) {
+        if (!creatorWallet) continue;
+        const trust = await computeCreatorTrustScore(creatorWallet, env as Parameters<typeof computeCreatorTrustScore>[1]);
+        const previousScore = entry.lastCreatorTrustScores?.[creatorWallet];
+        const creatorChanged = typeof previousScore === 'number' ? previousScore - trust.trustScore >= 15 : false;
+        const creatorCritical = trust.trustScore < 40;
+
+        if ((creatorCritical || creatorChanged) && entry.telegramChatId && env.TELEGRAM_BOT_TOKEN) {
+          const sent = await sendTelegramMessage({
+            botToken: env.TELEGRAM_BOT_TOKEN,
+            chatId: entry.telegramChatId,
+            message: buildGuardianCreatorMessage({
+              label: entry.label,
+              creatorWallet,
+              trustScore: trust.trustScore,
+              previousScore,
+              dashboardUrl: DASHBOARD_URL,
+            }),
+          });
+          if (sent) notificationsSent++;
+        }
+
+        entry.lastCreatorTrustScores = {
+          ...(entry.lastCreatorTrustScores ?? {}),
+          [creatorWallet]: trust.trustScore,
+        };
+      }
+
+      if (watchedTokens.length > 0 || watchedCreators.length > 0) {
         await kv.put(`${KV_PREFIX}${entry.wallet}`, JSON.stringify(entry), {
           expirationTtl: 86400 * 30,
         });

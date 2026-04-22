@@ -1,6 +1,5 @@
 import { useState, useMemo } from 'react';
-import type { TokenFeedItem } from '../../../shared/types';
-import { TierBadge } from '../components/RiskDisplay';
+import type { TokenFeedItem, TokenPhase } from '../../../shared/types';
 
 type SortField = 'volume' | 'fdv' | 'change' | 'fees';
 type FilterTier = 'all' | 'safe' | 'caution' | 'danger';
@@ -51,7 +50,7 @@ function TokenRow({ token, onSelect, index }: { token: TokenFeedItem; onSelect: 
   return (
     <button
       onClick={() => onSelect(token.mint)}
-      className="w-full flex items-center gap-4 px-4 py-3 hover:bg-sentinel-accent/5 rounded-lg transition-all text-left group"
+      className="w-full flex items-center gap-4 px-4 py-3 hover:bg-sentinel-surface/40 hover:ring-1 hover:ring-sentinel-accent/20 rounded-lg transition-all text-left group cursor-pointer animate-fade-in"
       style={{ animationDelay: `${index * 20}ms` }}
     >
       {/* Rank */}
@@ -91,15 +90,63 @@ function TokenRow({ token, onSelect, index }: { token: TokenFeedItem; onSelect: 
         </p>
       </div>
 
-      {/* Risk */}
-      <div className="w-20 text-right">
-        {token.riskTier ? (
-          <TierBadge tier={token.riskTier} />
+      {/* Risk + Pump Badge */}
+      <div className="w-24 flex justify-end items-center gap-1.5">
+        <PumpBadge token={token} />
+        {token.riskTier && token.riskScore !== null ? (
+          <RiskCell score={token.riskScore} tier={token.riskTier} />
         ) : (
-          <span className="text-[10px] text-gray-600 px-2 py-0.5 border border-sentinel-border rounded-full">scan →</span>
+          <span className="text-[10px] text-gray-600 px-2 py-1 border border-sentinel-border rounded-full group-hover:border-sentinel-accent/40 group-hover:text-sentinel-accent transition-colors">scan →</span>
         )}
       </div>
     </button>
+  );
+}
+
+const RISK_CELL_COLORS: Record<NonNullable<TokenFeedItem['riskTier']>, { text: string; bg: string; border: string; dot: string }> = {
+  safe:    { text: 'text-sentinel-safe',    bg: 'bg-sentinel-safe/10',    border: 'border-sentinel-safe/30',    dot: 'bg-sentinel-safe' },
+  caution: { text: 'text-sentinel-caution', bg: 'bg-sentinel-caution/10', border: 'border-sentinel-caution/30', dot: 'bg-sentinel-caution' },
+  danger:  { text: 'text-sentinel-danger',  bg: 'bg-sentinel-danger/10',  border: 'border-sentinel-danger/30',  dot: 'bg-sentinel-danger' },
+  rug:     { text: 'text-sentinel-rug',     bg: 'bg-sentinel-rug/15',     border: 'border-sentinel-rug/40',     dot: 'bg-sentinel-rug' },
+};
+
+function RiskCell({ score, tier }: { score: number; tier: NonNullable<TokenFeedItem['riskTier']> }) {
+  const c = RISK_CELL_COLORS[tier];
+  return (
+    <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-md border ${c.bg} ${c.border}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+      <span className={`text-sm font-mono font-semibold tabular-nums ${c.text}`}>{score}</span>
+      <span className={`text-[9px] uppercase tracking-wider font-semibold ${c.text} opacity-70`}>{tier}</span>
+    </div>
+  );
+}
+
+const PHASE_BADGE: Partial<Record<TokenPhase, { label: string; className: string }>> = {
+  manipulation:  { label: '⚡ PUMP',   className: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30' },
+  accumulation:  { label: '🎯 ACCUM',  className: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30' },
+  distribution:  { label: '📤 DIST',   className: 'bg-orange-500/15 text-orange-400 border-orange-500/30' },
+  collapse:      { label: '💀 EXIT',   className: 'bg-red-600/20 text-red-400 border-red-600/40' },
+};
+
+function PumpBadge({ token }: { token: TokenFeedItem }) {
+  const ps = token.pumpSignal;
+  if (!ps) return null;
+
+  // Only show badge if pumpScore is high enough or phase is actionable
+  const badge = PHASE_BADGE[ps.phase];
+  const highPump = ps.pumpScore >= 60;
+
+  if (!badge && !highPump) return null;
+
+  const display = badge ?? { label: `⚡ ${ps.pumpScore}`, className: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30' };
+
+  return (
+    <div
+      className={`hidden lg:inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[9px] font-bold tracking-wide ${display.className}`}
+      title={ps.reasoning}
+    >
+      {display.label}
+    </div>
   );
 }
 
@@ -227,7 +274,7 @@ export function FeedPage({ tokens, loading, onSelectToken }: {
         <div className="text-right hidden sm:block w-20">Volume</div>
         <div className="text-right hidden md:block w-20">FDV</div>
         <div className="text-right w-16">24h</div>
-        <div className="text-right w-20">Risk</div>
+        <div className="text-right w-24">Risk</div>
       </div>
 
       {/* Rows */}

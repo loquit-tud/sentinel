@@ -1,5 +1,7 @@
 import { useState, useRef } from 'react';
 
+const SENT_MINT = 'Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS';
+
 export function SearchBar({ onSearch }: { onSearch: (mint: string) => void }) {
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -47,6 +49,16 @@ export function SearchBar({ onSearch }: { onSearch: (mint: string) => void }) {
           className="absolute right-2 top-1/2 -translate-y-1/2 bg-sentinel-accent hover:bg-sentinel-accent-dim disabled:bg-sentinel-accent/30 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-1.5 rounded-md transition-all"
         >
           Scan
+        </button>
+      </div>
+      <div className="flex items-center gap-2 mt-2">
+        <span className="text-[11px] text-gray-600">Try:</span>
+        <button
+          type="button"
+          onClick={() => onSearch(SENT_MINT)}
+          className="text-[11px] text-sentinel-accent/70 hover:text-sentinel-accent border border-sentinel-accent/20 hover:border-sentinel-accent/50 rounded-full px-2.5 py-0.5 transition-colors"
+        >
+          $SENT
         </button>
       </div>
     </form>

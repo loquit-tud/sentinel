@@ -195,3 +195,52 @@ export function buildFeeAlertMessage(
 
   return lines.join('\n');
 }
+
+export function buildGuardianTokenMessage(params: {
+  label?: string;
+  tokenMint: string;
+  riskScore: number;
+  riskTier: string;
+  previousScore?: number;
+  dashboardUrl: string;
+}): string {
+  const shortMint = `${params.tokenMint.slice(0, 4)}…${params.tokenMint.slice(-4)}`;
+  const lines = [
+    '🛡️ <b>Community Guardian Alert</b>',
+    '',
+    params.label ? `🏷️ Watchlist: <b>${params.label}</b>` : null,
+    `🪙 Token: <code>${shortMint}</code>`,
+    `📉 Risk score: <b>${params.riskScore}/100</b> (${params.riskTier.toUpperCase()})`,
+  ].filter(Boolean) as string[];
+
+  if (typeof params.previousScore === 'number') {
+    lines.push(`↘️ Previous score: <b>${params.previousScore}/100</b>`);
+  }
+
+  lines.push('', `<a href="${params.dashboardUrl}?risk=${params.tokenMint}">Open Sentinel risk view</a>`);
+  return lines.join('\n');
+}
+
+export function buildGuardianCreatorMessage(params: {
+  label?: string;
+  creatorWallet: string;
+  trustScore: number;
+  previousScore?: number;
+  dashboardUrl: string;
+}): string {
+  const shortWallet = `${params.creatorWallet.slice(0, 4)}…${params.creatorWallet.slice(-4)}`;
+  const lines = [
+    '🧠 <b>Creator Guardian Alert</b>',
+    '',
+    params.label ? `🏷️ Watchlist: <b>${params.label}</b>` : null,
+    `👤 Creator: <code>${shortWallet}</code>`,
+    `📉 Trust score: <b>${params.trustScore}/100</b>`,
+  ].filter(Boolean) as string[];
+
+  if (typeof params.previousScore === 'number') {
+    lines.push(`↘️ Previous trust: <b>${params.previousScore}/100</b>`);
+  }
+
+  lines.push('', `<a href="${params.dashboardUrl}?creator=${params.creatorWallet}">Open Sentinel creator view</a>`);
+  return lines.join('\n');
+}

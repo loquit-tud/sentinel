@@ -1,0 +1,6 @@
+# https://sentinel-dashboard-3uy.pages.dev/robots.txt
+User-agent: *
+Allow: /
+Disallow: /?claim=
+
+Sitemap: https://sentinel-dashboard-3uy.pages.dev/sitemap.xml
