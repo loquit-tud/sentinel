@@ -8,3 +8,7 @@ dist/
 .DS_Store
 Thumbs.db
 PROJECT_PLAN.md
+.claude/
+__pycache__/
+*.pyc
+scripts/*.html
