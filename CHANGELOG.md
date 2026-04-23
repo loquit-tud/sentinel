@@ -1,6 +1,25 @@
 # CHANGELOG
 
-## 2026-04-21
+## 2026-04-23
+### Bags Partner Config — confirmed on-chain + worker fix
+**Fișier(e)**: `worker/src/partner/bags-partner.ts`, `worker/src/index.ts`
+**Motiv**: `getPartnerConfig()` returna `null` din cauza unui bug de parsing (wrapper double-unwrapped). Worker-ul nu avea `BAGS_API_KEY` setat ca secret în producție.
+**Fix**: Corectat parsing în `bags-partner.ts`; setat secret `BAGS_API_KEY`; revertat debug error exposure.
+**Status**: `registered: true` — wallet `2QCjUJ7nUBxpKtG3JJdNkuuNdwzTYuZbotaHaybEQh89` confirmat ca Bags partner.
+
+### Bags Partner Registration — on-chain ✅
+**Fișier(e)**: `scripts/register-partner.html`
+**Motiv**: Wallet-ul Sentinel trebuia înregistrat ca Bags partner on-chain pentru fee share.
+**Fix**: Semnat și trimis TX de înregistrare prin browser (Phantom). TX confirmat: `2RVRTcGEkzsepjga18MX9bsdSqcRS9cn9vrVSvV5fv6vbQPkk3mcB8AXocs4zwUNx5FQkMUgL8C6gFHdgRcTD8Ym`
+
+### Fee Share Config — wallets completate cu adrese reale
+**Fișier(e)**: `shared/constants.ts`, `worker/src/app-store/info.ts`
+**Motiv**: `feeClaimers` în `getSentFeeShareTarget()` aveau wallet-uri goale (`''`), ceea ce bloca activarea fee share config pe Bags. Fără adrese reale, Bags nu poate verifica integrarea.
+**Fix**:
+- Adăugat `SENTINEL_TEAM_WALLET = '2QCjUJ7nUBxpKtG3JJdNkuuNdwzTYuZbotaHaybEQh89'` și `SENTINEL_HOLDERS_WALLET = '4a6fi8i4Lr1TKNMUmProRzr958X4w6ErhCaui92QXFva'` în `shared/constants.ts`.
+- `feeClaimers`: Creator → team wallet (4000 bps), Holders Reward → holders wallet (3000 bps), Dev Fund → team wallet (2000 bps), Partner (Bags) → team wallet placeholder (1000 bps, de înlocuit cu adresa oficială Bags la înregistrarea ca partner).
+
+
 ### Pre-Rug Catcher — calibration fix (noise purge + stricter thresholds)
 **Fișier(e)**: `worker/src/watch/pre-rug-catcher.ts`
 **Motiv**: Audit post-deploy a relevat 20 false catches într-o oră, cu avg lead time 16.5 min (exact 1 cron cycle). Cauza: primul snapshot era capturat în cache warm-up (scor parțial, doar RugCheck), al doilea snapshot era enriched (Helius+Birdeye), creând artificial tier crash `caution→danger`. Exemplu: YZY drop=10 trecea doar prin clauza `OR tier_crash` fără prag de magnitudine.

@@ -4,7 +4,7 @@
  * Centralizes all app store metadata so the dashboard
  * and API can serve consistent info for the app listing.
  */
-import { SENT_MINT } from '../../../shared/constants';
+import { SENT_MINT, SENTINEL_TEAM_WALLET, SENTINEL_HOLDERS_WALLET } from '../../../shared/constants';
 
 // ── Types ────────────────────────────────────────────────
 
@@ -100,10 +100,11 @@ export function getSentFeeShareTarget(): SentFeeShareConfig {
       partnerPct: 10,
     },
     feeClaimers: [
-      { label: 'Creator (Sentinel)', wallet: '', bps: 4000 },
-      { label: 'Holders Reward', wallet: '', bps: 3000 },
-      { label: 'Dev Fund', wallet: '', bps: 2000 },
-      { label: 'Partner (Bags)', wallet: '', bps: 1000 },
+      { label: 'Creator (Sentinel)', wallet: SENTINEL_TEAM_WALLET, bps: 4000 },
+      { label: 'Holders Reward',     wallet: SENTINEL_HOLDERS_WALLET, bps: 3000 },
+      { label: 'Dev Fund',           wallet: SENTINEL_TEAM_WALLET, bps: 2000 },
+      // Partner (Bags) wallet — update with official Bags partner address after registration
+      { label: 'Partner (Bags)',     wallet: SENTINEL_TEAM_WALLET, bps: 1000 },
     ],
   };
 }

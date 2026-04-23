@@ -40,6 +40,14 @@ export const HELIUS_FREE_CREDITS = 50_000; // per month
 
 export const SENT_MINT = 'Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS';
 
+// ── Sentinel Team Wallets ─────────────────────────────────
+
+/** Main Sentinel team / creator wallet (signs partner registration, receives creator fees) */
+export const SENTINEL_TEAM_WALLET = '2QCjUJ7nUBxpKtG3JJdNkuuNdwzTYuZbotaHaybEQh89';
+
+/** Holders reward pool — receives 30% of $SENT trading fees for redistribution */
+export const SENTINEL_HOLDERS_WALLET = '4a6fi8i4Lr1TKNMUmProRzr958X4w6ErhCaui92QXFva';
+
 // ── Insurance Pool ───────────────────────────────────────
 
 export const INSURANCE_POOL_WALLET = '4a6fi8i4Lr1TKNMUmProRzr958X4w6ErhCaui92QXFva';

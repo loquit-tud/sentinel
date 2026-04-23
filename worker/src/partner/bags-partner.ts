@@ -89,16 +89,16 @@ export async function getPartnerConfig(
   apiKey?: string,
 ): Promise<PartnerConfig | null> {
   try {
-    const raw = await bagsGet<Record<string, unknown>>(
-      `/partner/config?wallet=${wallet}`,
+    const r = await bagsGet<{ claimedFees?: string; unclaimedFees?: string }>(
+      `/fee-share/partner-config/stats?partner=${wallet}`,
       apiKey,
     );
     return {
-      partner: String(raw.partner ?? wallet),
-      bps: Number(raw.bps ?? 0),
-      totalClaimedFees: String(raw.totalClaimedFees ?? '0'),
-      totalAccumulatedFees: String(raw.totalAccumulatedFees ?? '0'),
-      totalLifetimeAccumulatedFees: String(raw.totalLifetimeAccumulatedFees ?? '0'),
+      partner: wallet,
+      bps: 0,
+      totalClaimedFees: r.claimedFees ?? '0',
+      totalAccumulatedFees: r.unclaimedFees ?? '0',
+      totalLifetimeAccumulatedFees: r.claimedFees ?? '0',
     };
   } catch {
     return null;
@@ -113,15 +113,16 @@ export async function getPartnerCreationTx(
   partnerWallet: string,
   apiKey?: string,
 ): Promise<PartnerTxResult> {
+  // SDK uses: POST /fee-share/partner-config/creation-tx  { partnerWallet }
+  // Response: { transaction: { transaction: base58, blockhash: string }, ... }
   const raw = await bagsPost<{
-    transaction: string;
-    blockhash: { blockhash: string; lastValidBlockHeight: number };
-  }>('/partner/create-config', { partner: partnerWallet }, apiKey);
+    transaction: { transaction: string; blockhash: string; lastValidBlockHeight: number };
+  }>('/fee-share/partner-config/creation-tx', { partnerWallet }, apiKey);
 
   return {
-    transaction: raw.transaction,
-    blockhash: raw.blockhash.blockhash,
-    lastValidBlockHeight: raw.blockhash.lastValidBlockHeight,
+    transaction: raw.transaction.transaction,
+    blockhash: raw.transaction.blockhash,
+    lastValidBlockHeight: raw.transaction.lastValidBlockHeight,
   };
 }
 
@@ -135,7 +136,7 @@ export async function getPartnerClaimStats(
   const raw = await bagsGet<{
     claimedFees: string;
     unclaimedFees: string;
-  }>(`/partner/claim-stats?wallet=${wallet}`, apiKey);
+  }>(`/fee-share/partner-config/stats?partner=${wallet}`, apiKey);
 
   const claimedLamports = BigInt(raw.claimedFees || '0');
   const unclaimedLamports = BigInt(raw.unclaimedFees || '0');
@@ -157,14 +158,13 @@ export async function getPartnerClaimTxs(
   wallet: string,
   apiKey?: string,
 ): Promise<PartnerTxResult[]> {
-  const raw = await bagsGet<Array<{
-    transaction: string;
-    blockhash: { blockhash: string; lastValidBlockHeight: number };
-  }>>(`/partner/claim-transactions?wallet=${wallet}`, apiKey);
+  const raw = await bagsPost<{
+    transactions: Array<{ transaction: string; blockhash: string; lastValidBlockHeight: number }>;
+  }>('/fee-share/partner-config/claim-tx', { partnerWallet: wallet }, apiKey);
 
-  return raw.map((r) => ({
+  return raw.transactions.map((r) => ({
     transaction: r.transaction,
-    blockhash: r.blockhash.blockhash,
-    lastValidBlockHeight: r.blockhash.lastValidBlockHeight,
+    blockhash: r.blockhash,
+    lastValidBlockHeight: r.lastValidBlockHeight,
   }));
 }

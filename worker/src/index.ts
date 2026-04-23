@@ -29,10 +29,7 @@ const USD_HOLDER_MIN = 1.0; // $1 USD — must match token-gate.ts
 import { getAppStoreInfo, getSentFeeShareTarget } from './app-store/info';
 import { fetchSentFeeStats } from './token/sent-stats';
 import { runSwarmCycle, getSwarmState, runTokenSwarmCycle } from './swarm/engine';
-import { screenTransaction, getWalletConfig, addRule, removeRule, updateSettings, getFirewallStats, getFirewallLog } from './firewall/engine';
-import { getPoolStats, commitToPool, submitClaim, getWalletClaims, getRecentClaims, getCommitments } from './insurance/pool';
 import { computeCreatorTrustScore } from './creator/trust-score';
-import { simulateRug } from './risk/pre-rug-simulator';
 import { runPreRugWatch, getRecentCatches, getWatchStats, getTokenMemory } from './watch/pre-rug-catcher';
 import { subscribe as tgSubscribe, unsubscribe as tgUnsubscribe, notifySubscribersOfCatch, getSubscriberCount } from './notify/alert-subscriptions';
 import type { CatchPayload } from './notify/alert-subscriptions';
@@ -62,6 +59,7 @@ const ALLOWED_ORIGINS = [
   'https://bags.fm',
   'http://localhost:5173',
   'http://localhost:4173',
+  'http://localhost:7777',
 ];
 
 app.use('/*', cors({
@@ -1263,86 +1261,6 @@ app.get('/v1/creator/:wallet/trust', async (c) => {
   }
 });
 
-// ── Pre-Rug Simulator ────────────────────────────────────
-
-app.post('/v1/risk/simulate-rug', async (c) => {
-  const body = await c.req.json<{ mint: string; scenarios?: string[] }>();
-  if (!body?.mint || !SOLANA_ADDR_RE.test(body.mint)) {
-    return c.json({ ok: false, error: 'Invalid token mint' }, 400);
-  }
-
-  try {
-    const result = await simulateRug(
-      { mint: body.mint, scenarios: body.scenarios as any },
-      c.env,
-    );
-    return c.json({ ok: true, data: result });
-  } catch (err) {
-    console.error('Rug simulation error:', err);
-    return c.json({ ok: false, error: 'Simulation failed' }, 500);
-  }
-});
-
-app.get('/v1/risk/simulate-rug/:mint', async (c) => {
-  const mint = c.req.param('mint');
-  if (!SOLANA_ADDR_RE.test(mint)) {
-    return c.json({ ok: false, error: 'Invalid token mint' }, 400);
-  }
-
-  try {
-    const result = await simulateRug({ mint }, c.env);
-    return c.json({ ok: true, data: result });
-  } catch (err) {
-    console.error('Rug simulation error:', err);
-    return c.json({ ok: false, error: 'Simulation failed' }, 500);
-  }
-});
-
-app.post('/v1/proof/token', async (c) => {
-  let body: { wallet?: string; mint?: string; amountUsd?: number; scenarios?: string[] };
-  try {
-    body = await c.req.json();
-  } catch {
-    return c.json({ ok: false, error: 'Invalid JSON body' }, 400);
-  }
-
-  if (!body.mint || !SOLANA_ADDR_RE.test(body.mint)) {
-    return c.json({ ok: false, error: 'Invalid mint' }, 400);
-  }
-
-  const amountUsd = typeof body.amountUsd === 'number' && body.amountUsd >= 0 ? body.amountUsd : 100;
-
-  try {
-    const [simulation, screen] = await Promise.all([
-      simulateRug({ mint: body.mint, scenarios: body.scenarios as any }, c.env),
-      body.wallet && SOLANA_ADDR_RE.test(body.wallet)
-        ? screenTransaction(body.wallet, body.mint, amountUsd, c.env)
-        : Promise.resolve(null),
-    ]);
-
-    const highlights = [
-      `Worst-case scenario: ${simulation.worstCase?.scenario ?? 'none'} (${simulation.overallRisk.toUpperCase()})`,
-      `Current score: ${simulation.currentScore}/100 (${simulation.currentTier.toUpperCase()})`,
-      screen ? `Firewall verdict: ${screen.decision}` : 'Connect a wallet to include firewall proof',
-    ];
-
-    return c.json({
-      ok: true,
-      data: {
-        mint: body.mint,
-        amountUsd,
-        highlights,
-        screen,
-        simulation,
-        generatedAt: Date.now(),
-      },
-    });
-  } catch (err) {
-    console.error('Proof mode error:', err);
-    return c.json({ ok: false, error: 'Proof mode failed' }, 500);
-  }
-});
-
 // ── Embeddable Badge ─────────────────────────────────────
 
 app.get('/v1/badge/:mint', async (c) => {
@@ -1852,175 +1770,6 @@ app.post('/v1/swarm/token/:mint', async (c) => {
     console.error('Token swarm cycle error:', err);
     return c.json({ ok: false, error: msg }, 500);
   }
-});
-
-// ── Autonomous Firewall ──────────────────────────────────
-
-app.post('/v1/firewall/screen', async (c) => {
-  let body: { wallet?: string; tokenMint?: string; amountUsd?: number };
-  try { body = await c.req.json(); } catch { return c.json({ ok: false, error: 'Invalid JSON body' }, 400); }
-  if (!body.wallet || !SOLANA_ADDR_RE.test(body.wallet)) return c.json({ ok: false, error: 'Invalid wallet' }, 400);
-  if (!body.tokenMint || !SOLANA_ADDR_RE.test(body.tokenMint)) return c.json({ ok: false, error: 'Invalid tokenMint' }, 400);
-  const amountUsd = typeof body.amountUsd === 'number' && body.amountUsd >= 0 ? body.amountUsd : 100;
-
-  try {
-    const result = await screenTransaction(body.wallet, body.tokenMint, amountUsd, c.env);
-    return c.json({ ok: true, data: result });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Screen failed';
-    return c.json({ ok: false, error: msg }, 500);
-  }
-});
-
-app.get('/v1/firewall/:wallet/config', async (c) => {
-  const wallet = c.req.param('wallet');
-  if (!SOLANA_ADDR_RE.test(wallet)) return c.json({ ok: false, error: 'Invalid wallet' }, 400);
-  const kv = c.env.SENTINEL_KV;
-  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
-
-  const config = await getWalletConfig(wallet, kv);
-  return c.json({ ok: true, data: config });
-});
-
-app.post('/v1/firewall/:wallet/rules', async (c) => {
-  const wallet = c.req.param('wallet');
-  if (!SOLANA_ADDR_RE.test(wallet)) return c.json({ ok: false, error: 'Invalid wallet' }, 400);
-  const kv = c.env.SENTINEL_KV;
-  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
-
-  let body: { tokenMint?: string; tokenSymbol?: string; action?: string; reason?: string };
-  try { body = await c.req.json(); } catch { return c.json({ ok: false, error: 'Invalid JSON body' }, 400); }
-  if (!body.tokenMint || !SOLANA_ADDR_RE.test(body.tokenMint)) return c.json({ ok: false, error: 'Invalid tokenMint' }, 400);
-  if (body.action !== 'whitelist' && body.action !== 'block') return c.json({ ok: false, error: 'action must be "whitelist" or "block"' }, 400);
-
-  const config = await addRule(wallet, {
-    tokenMint: body.tokenMint,
-    tokenSymbol: body.tokenSymbol,
-    action: body.action,
-    reason: typeof body.reason === 'string' ? body.reason.slice(0, 200) : undefined,
-  }, kv);
-  return c.json({ ok: true, data: config });
-});
-
-app.delete('/v1/firewall/:wallet/rules/:ruleId', async (c) => {
-  const wallet = c.req.param('wallet');
-  const ruleId = c.req.param('ruleId');
-  if (!SOLANA_ADDR_RE.test(wallet)) return c.json({ ok: false, error: 'Invalid wallet' }, 400);
-  const kv = c.env.SENTINEL_KV;
-  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
-
-  const config = await removeRule(wallet, ruleId, kv);
-  return c.json({ ok: true, data: config });
-});
-
-app.patch('/v1/firewall/:wallet/settings', async (c) => {
-  const wallet = c.req.param('wallet');
-  if (!SOLANA_ADDR_RE.test(wallet)) return c.json({ ok: false, error: 'Invalid wallet' }, 400);
-  const kv = c.env.SENTINEL_KV;
-  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
-
-  let body: { autoBlockRug?: boolean; autoBlockDanger?: boolean; autoBlockLpDrain?: boolean };
-  try { body = await c.req.json(); } catch { return c.json({ ok: false, error: 'Invalid JSON body' }, 400); }
-
-  const config = await updateSettings(wallet, body, kv);
-  return c.json({ ok: true, data: config });
-});
-
-app.get('/v1/firewall/stats', async (c) => {
-  const kv = c.env.SENTINEL_KV;
-  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
-
-  const stats = await getFirewallStats(kv);
-  return c.json({ ok: true, data: stats });
-});
-
-app.get('/v1/firewall/:wallet/log', async (c) => {
-  const wallet = c.req.param('wallet');
-  if (!SOLANA_ADDR_RE.test(wallet)) return c.json({ ok: false, error: 'Invalid wallet' }, 400);
-  const kv = c.env.SENTINEL_KV;
-  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
-
-  const log = await getFirewallLog(wallet, kv);
-  return c.json({ ok: true, data: log });
-});
-
-// ── Insurance Pool ───────────────────────────────────────
-
-app.get('/v1/insurance/pool', async (c) => {
-  const kv = c.env.SENTINEL_KV;
-  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
-
-  const stats = await getPoolStats(kv);
-  return c.json({ ok: true, data: stats });
-});
-
-app.get('/v1/insurance/commitments', async (c) => {
-  const kv = c.env.SENTINEL_KV;
-  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
-
-  const commitments = await getCommitments(kv);
-  return c.json({ ok: true, data: { commitments, count: commitments.length } });
-});
-
-app.post('/v1/insurance/commit', async (c) => {
-  let body: { wallet?: string; amountSent?: number; txSignature?: string };
-  try { body = await c.req.json(); } catch { return c.json({ ok: false, error: 'Invalid JSON body' }, 400); }
-  if (!body.wallet || !SOLANA_ADDR_RE.test(body.wallet)) return c.json({ ok: false, error: 'Invalid wallet' }, 400);
-  if (typeof body.amountSent !== 'number' || body.amountSent <= 0) return c.json({ ok: false, error: 'amountSent must be a positive number' }, 400);
-  if (!body.txSignature || typeof body.txSignature !== 'string') return c.json({ ok: false, error: 'txSignature is required' }, 400);
-
-  const kv = c.env.SENTINEL_KV;
-  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
-
-  try {
-    const result = await commitToPool(body.wallet, body.amountSent, kv, c.env.HELIUS_API_KEY, body.txSignature);
-    return c.json({ ok: true, data: result });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Commit failed';
-    return c.json({ ok: false, error: msg }, 400);
-  }
-});
-
-app.post('/v1/insurance/claim', async (c) => {
-  let body: { wallet?: string; tokenMint?: string; tokenSymbol?: string; lossEstimateUsd?: number; riskScoreAtEntry?: number };
-  try { body = await c.req.json(); } catch { return c.json({ ok: false, error: 'Invalid JSON body' }, 400); }
-  if (!body.wallet || !SOLANA_ADDR_RE.test(body.wallet)) return c.json({ ok: false, error: 'Invalid wallet' }, 400);
-  if (!body.tokenMint || !SOLANA_ADDR_RE.test(body.tokenMint)) return c.json({ ok: false, error: 'Invalid tokenMint' }, 400);
-  if (typeof body.lossEstimateUsd !== 'number' || body.lossEstimateUsd <= 0) return c.json({ ok: false, error: 'lossEstimateUsd must be positive' }, 400);
-  if (typeof body.riskScoreAtEntry !== 'number' || body.riskScoreAtEntry < 0 || body.riskScoreAtEntry > 100) return c.json({ ok: false, error: 'riskScoreAtEntry must be 0-100' }, 400);
-
-  try {
-    const claim = await submitClaim(
-      body.wallet,
-      body.tokenMint,
-      typeof body.tokenSymbol === 'string' ? body.tokenSymbol.slice(0, 20) : 'UNKNOWN',
-      body.lossEstimateUsd,
-      body.riskScoreAtEntry,
-      c.env,
-    );
-    return c.json({ ok: true, data: claim });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Claim submission failed';
-    return c.json({ ok: false, error: msg }, 500);
-  }
-});
-
-app.get('/v1/insurance/claims/:wallet', async (c) => {
-  const wallet = c.req.param('wallet');
-  if (!SOLANA_ADDR_RE.test(wallet)) return c.json({ ok: false, error: 'Invalid wallet' }, 400);
-  const kv = c.env.SENTINEL_KV;
-  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
-
-  const claims = await getWalletClaims(wallet, kv);
-  return c.json({ ok: true, data: claims });
-});
-
-app.get('/v1/insurance/claims', async (c) => {
-  const kv = c.env.SENTINEL_KV;
-  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
-
-  const claims = await getRecentClaims(kv);
-  return c.json({ ok: true, data: claims });
 });
 
 // ── Feed Risk Enrichment ──────────────────────────────────
