@@ -30,6 +30,51 @@ export function tierFromScore(score: number): RiskTier {
   return 'rug';
 }
 
+// ── Agent Policy ──────────────────────────────────────────
+
+export type AgentAction =
+  | 'monitor'         // continue normal scan cycle
+  | 'rescan_soon'     // reschedule to 2-5 min (early warning)
+  | 'log_alert'       // record internally, suppress broadcast
+  | 'telegram_alert'  // broadcast to Telegram
+  | 'escalate';       // maximum urgency, active collapse
+
+export interface AgentPolicyDecision {
+  action: AgentAction;
+  alertLevel: 'none' | 'low' | 'medium' | 'high' | 'critical';
+  confidence: number;   // 0-100
+  reasoning: string;    // 1-sentence decision rationale
+  dynamicRescanMs?: number;  // if set, reschedule sooner than 15min
+  decidedBy: 'llm' | 'heuristic';
+  decidedAt: number;
+}
+
+export interface AgentPolicyInput {
+  score: number;
+  prevScore?: number;
+  scoreDrop: number;
+  tierTransition?: string;
+  breakdown: RiskBreakdown;
+  phase?: TokenPhase;
+  trend?: TokenTrend;
+  creatorPrevRug: boolean;
+  memory?: {
+    snapshots: Array<{ score: number; ts: number; phase?: string }>;
+    lastReasoning: string;
+  };
+}
+
+// ── Buy Guard ─────────────────────────────────────────────
+
+export type BuyVerdict = 'safe' | 'caution' | 'avoid';
+
+export interface BuyDecision {
+  verdict: BuyVerdict;
+  confidence: number;   // 0-100
+  reasons: string[];    // top 2 factors (red flags or strengths)
+  worstCase: string;    // expected outcome if pattern repeats
+}
+
 // ── Pump Intelligence ────────────────────────────────────
 
 export type TokenPhase =

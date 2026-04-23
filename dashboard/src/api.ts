@@ -251,6 +251,18 @@ export interface PreRugCatch {
   scoreDrop: number;
   tierTransition: string;
   reason: 'score_drop' | 'tier_crash';
+  // Agent reasoning trace
+  triggerSignals?: string[];
+  creatorPrevRug?: boolean;
+  // Agent Policy Decision
+  agentDecision?: {
+    action: 'monitor' | 'rescan_soon' | 'log_alert' | 'telegram_alert' | 'escalate';
+    alertLevel: 'none' | 'low' | 'medium' | 'high' | 'critical';
+    confidence: number;
+    reasoning: string;
+    decidedBy: 'llm' | 'heuristic';
+    decidedAt: number;
+  };
 }
 
 export interface WatchStats {
@@ -349,6 +361,38 @@ export async function fetchAlertFeed(): Promise<AlertFeed> {
   const body: ApiResponse<AlertFeed> = await res.json();
   if (!body.ok || !body.data) throw new Error(body.error ?? 'Failed to fetch alert feed');
   return body.data;
+}
+
+// ── AI Explanation ────────────────────────────────────────
+
+export interface RiskExplanation {
+  why: string;
+  pattern: string;
+  action: string;
+  confidence: 'high' | 'medium' | 'low';
+  generatedAt: number;
+}
+
+export interface ExplainResult {
+  mint: string;
+  score: number;
+  tier: string;
+  explanation: RiskExplanation;
+}
+
+export async function explainRisk(mint: string, tokenName?: string): Promise<ExplainResult | null> {
+  try {
+    const res = await fetch(`${BASE}/risk/explain`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mint, tokenName }),
+    });
+    const body: ApiResponse<ExplainResult> = await res.json();
+    if (!body.ok || !body.data) return null;
+    return body.data;
+  } catch {
+    return null;
+  }
 }
 
 export async function triggerAlertScan(): Promise<{ newAlerts: number; alerts: RiskAlert[] }> {

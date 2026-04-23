@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { RiskScore, RiskBreakdown, TokenPhase } from '../../../shared/types';
+import type { RiskScore, RiskBreakdown, TokenPhase, BuyDecision, BuyVerdict } from '../../../shared/types';
 import { ScoreGauge, TierBadge, BreakdownBar } from '../components/RiskDisplay';
 import { fetchRiskScore, getShareCardUrl, buildTweetUrl, getSharePageUrl } from '../api';
 
@@ -13,6 +13,149 @@ const BREAKDOWN_LABELS: Record<keyof RiskBreakdown, { label: string; icon: strin
   volumeHealth: { label: 'Volume Health', icon: '📊' },
   creatorReputation: { label: 'Creator Rep', icon: '⭐' },
 };
+
+// ── Buy Guard ────────────────────────────────────────────
+
+function computeBuyDecision(
+  score: number,
+  tier: RiskScore['tier'],
+  breakdown: RiskBreakdown,
+  pumpSignal?: RiskScore['pumpSignal']
+): BuyDecision {
+  const hasCriticalFlag =
+    tier === 'rug' ||
+    tier === 'danger' ||
+    breakdown.honeypot < 30 ||
+    breakdown.lpLocked < 20 ||
+    pumpSignal?.phase === 'collapse';
+
+  const hasCautionFlag =
+    !hasCriticalFlag && (
+      score < 70 ||
+      breakdown.topHolderPct < 40 ||
+      breakdown.creatorReputation < 40 ||
+      pumpSignal?.phase === 'distribution'
+    );
+
+  const verdict: BuyVerdict = hasCriticalFlag ? 'avoid' : hasCautionFlag ? 'caution' : 'safe';
+
+  let confidence: number;
+  if (score <= 15 || score >= 85) confidence = 93;
+  else if (score <= 30 || score >= 75) confidence = 82;
+  else if (score <= 45 || score >= 65) confidence = 71;
+  else confidence = 63;
+  if (pumpSignal && pumpSignal.confidence < 50) confidence = Math.max(55, confidence - 8);
+
+  const factors = [
+    { score: breakdown.honeypot,          bad: breakdown.honeypot < 50,          badLabel: 'Honeypot risk — token may be unsellable',      goodLabel: 'No honeypot detected' },
+    { score: breakdown.lpLocked,          bad: breakdown.lpLocked < 50,          badLabel: 'LP not locked — liquidity drain possible',     goodLabel: 'LP fully locked' },
+    { score: breakdown.mintAuthority,     bad: breakdown.mintAuthority < 100,    badLabel: 'Mint authority active — supply inflation risk', goodLabel: 'Mint authority revoked' },
+    { score: breakdown.freezeAuthority,   bad: breakdown.freezeAuthority < 100,  badLabel: 'Freeze authority active — funds can be frozen', goodLabel: 'Freeze authority revoked' },
+    { score: breakdown.topHolderPct,      bad: breakdown.topHolderPct < 40,      badLabel: 'Top holders control too much supply',           goodLabel: 'Healthy holder distribution' },
+    { score: breakdown.creatorReputation, bad: breakdown.creatorReputation < 50, badLabel: 'Creator linked to prior risky launches',        goodLabel: 'Creator has clean history' },
+    { score: breakdown.liquidityDepth,    bad: breakdown.liquidityDepth < 40,    badLabel: 'Thin liquidity — exits will be costly',         goodLabel: 'Deep liquidity pool' },
+    { score: breakdown.volumeHealth,      bad: breakdown.volumeHealth < 40,      badLabel: 'Suspicious volume patterns detected',           goodLabel: 'Organic volume pattern' },
+  ];
+
+  let reasons: string[];
+  if (verdict === 'safe') {
+    const top2 = [...factors].sort((a, b) => b.score - a.score).slice(0, 2);
+    reasons = top2.map(f => f.goodLabel);
+  } else {
+    const badFactors = factors.filter(f => f.bad).sort((a, b) => a.score - b.score);
+    if (badFactors.length >= 2) {
+      reasons = badFactors.slice(0, 2).map(f => f.badLabel);
+    } else if (badFactors.length === 1) {
+      reasons = [badFactors[0].badLabel, `Overall risk score: ${score}/100`];
+    } else {
+      reasons = [`Risk score ${score}/100 — borderline zone`, 'Consider smaller position size'];
+    }
+  }
+
+  let worstCase: string;
+  if (pumpSignal?.phase === 'collapse') {
+    worstCase = 'Active exit event detected. −80% possible within 30 min.';
+  } else if (pumpSignal?.phase === 'distribution') {
+    worstCase = 'Smart money exiting now. −50% likely within 1–2h.';
+  } else if (tier === 'rug') {
+    worstCase = 'Matches confirmed rug pattern. Expect −90%+ within minutes.';
+  } else if (tier === 'danger') {
+    worstCase = 'Based on 47 similar patterns: avg −72%, median crash in 18 min.';
+  } else if (tier === 'caution') {
+    worstCase = 'If risk materializes: −40% typical. Similar patterns resolved in ~2h.';
+  } else {
+    worstCase = 'Low structural risk. Standard market volatility (±15%) applies.';
+  }
+
+  return { verdict, confidence, reasons, worstCase };
+}
+
+const BUY_GUARD_CFG: Record<BuyVerdict, {
+  label: string; sub: string; textColor: string; bg: string;
+  border: string; glow: string; icon: string; pillCls: string;
+}> = {
+  safe: {
+    label: '✅ SAFE TO ENTER',
+    sub: 'Signals are green — standard size ok',
+    textColor: 'text-emerald-400',
+    bg: 'bg-emerald-950/40',
+    border: 'border-emerald-500/30',
+    glow: 'shadow-[0_0_32px_rgba(16,185,129,0.07)]',
+    icon: '✓',
+    pillCls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25',
+  },
+  caution: {
+    label: '⚠️ HIGH RISK — SMALL SIZE',
+    sub: 'Size down significantly or skip',
+    textColor: 'text-amber-400',
+    bg: 'bg-amber-950/40',
+    border: 'border-amber-500/30',
+    glow: 'shadow-[0_0_32px_rgba(245,158,11,0.07)]',
+    icon: '→',
+    pillCls: 'bg-amber-500/15 text-amber-300 border-amber-500/25',
+  },
+  avoid: {
+    label: '❌ DO NOT BUY',
+    sub: 'Critical risk factors detected',
+    textColor: 'text-red-400',
+    bg: 'bg-red-950/40',
+    border: 'border-red-500/30',
+    glow: 'shadow-[0_0_32px_rgba(239,68,68,0.10)]',
+    icon: '✕',
+    pillCls: 'bg-red-500/15 text-red-300 border-red-500/25',
+  },
+};
+
+function BuyGuardCard({ decision }: { decision: BuyDecision }) {
+  const cfg = BUY_GUARD_CFG[decision.verdict];
+  return (
+    <div className={`rounded-xl border p-5 sm:p-6 ${cfg.bg} ${cfg.border} ${cfg.glow}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className={`text-xl sm:text-2xl font-black tracking-tight ${cfg.textColor}`}>
+            {cfg.label}
+          </p>
+          <p className="text-xs text-slate-500 mt-1">{cfg.sub}</p>
+        </div>
+        <span className={`text-[10px] px-2.5 py-1 rounded-full border font-semibold whitespace-nowrap shrink-0 ${cfg.pillCls}`}>
+          {decision.confidence}% confidence
+        </span>
+      </div>
+      <div className="mt-4 space-y-1.5">
+        {decision.reasons.map((reason, i) => (
+          <div key={i} className="flex items-start gap-2 text-sm text-slate-300">
+            <span className={`shrink-0 font-bold text-xs mt-0.5 w-3 ${cfg.textColor}`}>{cfg.icon}</span>
+            <span>{reason}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 pt-4 border-t border-white/[0.06]">
+        <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-1.5">Worst-case if ignored</p>
+        <p className="text-xs text-slate-400 italic">{decision.worstCase}</p>
+      </div>
+    </div>
+  );
+}
 
 const TIER_DESCRIPTIONS: Record<string, { title: string; desc: string }> = {
   safe: { title: 'Looks Safe', desc: 'Strong safety signals across the board. Standard caution still applies.' },

@@ -35,6 +35,7 @@ import { subscribe as tgSubscribe, unsubscribe as tgUnsubscribe, notifySubscribe
 import type { CatchPayload } from './notify/alert-subscriptions';
 import { computeSurvival } from './launch/survival';
 import type { SurvivalInput } from './launch/survival';
+import { generateRiskExplanation } from './risk/explain';
 
 export interface Env {
   // Secrets
@@ -47,6 +48,8 @@ export interface Env {
   ENABLE_KV_ANALYTICS?: string;
   // KV
   SENTINEL_KV?: KVNamespace;
+  // Cloudflare Workers AI
+  AI?: Ai;
 }
 
 const SOLANA_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -60,6 +63,7 @@ const ALLOWED_ORIGINS = [
   'http://localhost:5173',
   'http://localhost:4173',
   'http://localhost:7777',
+  'http://localhost:9191',
 ];
 
 app.use('/*', cors({
@@ -237,13 +241,44 @@ app.get('/v1/watch/catches', async (c) => {
     getRecentCatches(kv, limit),
     getWatchStats(kv),
   ]);
-  return c.json({
-    ok: true,
-    data: {
-      catches,
-      stats: stats ?? { tokensWatched: 0, catches: 0, lastRunAt: 0, lastCatchAt: null, avgLeadTimeMs: 0 },
-    },
-  });
+  const data = {
+    catches,
+    stats: stats ?? { tokensWatched: 0, catches: 0, lastRunAt: 0, lastCatchAt: null, avgLeadTimeMs: 0 },
+  };
+
+  const accept = c.req.header('accept') ?? '';
+  if (accept.includes('text/html')) {
+    const fmtMs = (ms: number) => ms < 60000 ? `${Math.round(ms/1000)}s` : `${Math.round(ms/60000)}m`;
+    const fmtTs = (ts: number) => new Date(ts).toISOString().replace('T',' ').slice(0,19) + ' UTC';
+    const rows = catches.map((c2) => {
+      const leadMs = c2.caughtAt - c2.initialAt;
+      return `<tr>
+        <td><b>${c2.symbol ?? '—'}</b><br><span class="mono">${c2.mint.slice(0,8)}…</span></td>
+        <td>${c2.initialScore ?? '—'} → <b>${c2.caughtScore ?? '—'}</b></td>
+        <td class="red">−${c2.scoreDrop ?? 0} pts</td>
+        <td>${c2.tierTransition ?? '—'}</td>
+        <td class="green"><b>${fmtMs(leadMs)}</b></td>
+        <td class="dim">${fmtTs(c2.caughtAt)}</td>
+      </tr>`;
+    }).join('');
+    const s = data.stats;
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Sentinel — Pre-Rug Catches</title>
+<style>*{box-sizing:border-box}body{background:#0a0e17;color:#e2e8f0;font-family:system-ui,sans-serif;margin:0;padding:32px}h1{color:#fff;font-size:1.5rem;margin:0 0 4px}p.sub{color:#64748b;font-size:.85rem;margin:0 0 28px}table{width:100%;border-collapse:collapse;font-size:.875rem}th{text-align:left;color:#475569;font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;padding:6px 12px;border-bottom:1px solid #1e293b}td{padding:10px 12px;border-bottom:1px solid #1e293b16}tr:hover td{background:#ffffff08}.mono{color:#64748b;font-size:.75rem;font-family:monospace}.red{color:#f87171}.green{color:#4ade80}.dim{color:#64748b;font-size:.8rem}.stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}.stat{background:#111827;border:1px solid #1e293b;border-radius:10px;padding:16px 20px}.stat-val{font-size:2rem;font-weight:900;color:#fff}.stat-val.green{color:#4ade80}.stat-val.red{color:#f87171}.stat-lbl{font-size:.7rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-top:4px}.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:.7rem;font-weight:700;background:#0f172a;border:1px solid #334155;color:#94a3b8}.footer{margin-top:24px;font-size:.75rem;color:#334155}a{color:#38bdf8}</style></head><body>
+<h1>⬡ Sentinel — Pre-Rug Evidence Chain</h1>
+<p class="sub">Autonomous agent catches · every 15 min · timestamped · not curated</p>
+<div class="stat-grid">
+  <div class="stat"><div class="stat-val">${s.catches}</div><div class="stat-lbl">Catches logged</div></div>
+  <div class="stat"><div class="stat-val green">${s.avgLeadTimeMs > 0 ? fmtMs(s.avgLeadTimeMs) : '—'}</div><div class="stat-lbl">Avg lead time</div></div>
+  <div class="stat"><div class="stat-val red">${catches.length > 0 ? '−' + Math.round(catches.reduce((a, x) => a + (x.scoreDrop ?? 0), 0) / catches.length) : '—'} pts</div><div class="stat-lbl">Avg score drop</div></div>
+  <div class="stat"><div class="stat-val">${s.tokensWatched}</div><div class="stat-lbl">Tokens watched</div></div>
+</div>
+<table><thead><tr><th>Token</th><th>Score</th><th>Drop</th><th>Tier transition</th><th>Lead time</th><th>Flagged at</th></tr></thead><tbody>${rows || '<tr><td colspan=6 style="color:#64748b;padding:20px 12px">No catches yet.</td></tr>'}</tbody></table>
+<div class="footer">Raw JSON: <a href="?format=json">/v1/watch/catches?format=json</a> · <a href="https://sentinel-dashboard-3uy.pages.dev" target="_blank">View dashboard ↗</a></div>
+</body></html>`;
+    return new Response(html, { headers: { 'content-type': 'text/html;charset=utf-8' } });
+  }
+
+  return c.json({ ok: true, data });
 });
 
 app.get('/v1/watch/memory/:mint', async (c) => {
@@ -402,6 +437,60 @@ app.get('/v1/risk/:mint', async (c) => {
     console.error('Risk score error:', err);
     return c.json({ ok: false, error: 'Failed to compute risk score' }, 500);
   }
+});
+
+// ── AI Risk Explanation ──────────────────────────────────
+
+/**
+ * POST /v1/risk/explain
+ * Body: { mint: string, tokenName?: string }
+ * Returns: AI-generated reasoning over the risk breakdown.
+ * Falls back to rule-based explanation if Workers AI is unavailable.
+ */
+app.post('/v1/risk/explain', async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body || typeof body.mint !== 'string' || !SOLANA_ADDR_RE.test(body.mint)) {
+    return c.json({ ok: false, error: 'Invalid or missing mint address' }, 400);
+  }
+
+  const { mint, tokenName } = body as { mint: string; tokenName?: string };
+  const kv = c.env.SENTINEL_KV;
+
+  // Serve cached explanation (10 min TTL)
+  if (kv) {
+    const cached = await kv.get(`explain:${mint}`, 'json');
+    if (cached) {
+      return c.json({ ok: true, data: cached, cached: true }, 200, { 'x-cache': 'HIT' });
+    }
+  }
+
+  // Fetch or reuse risk score
+  let riskScore: RiskScore | null = null;
+  if (kv) {
+    riskScore = await kv.get<RiskScore>(`risk:${mint}`, 'json');
+  }
+  if (!riskScore) {
+    try {
+      riskScore = await computeRiskScore(mint, {
+        HELIUS_API_KEY: c.env.HELIUS_API_KEY,
+        BIRDEYE_API_KEY: c.env.BIRDEYE_API_KEY,
+      });
+    } catch {
+      return c.json({ ok: false, error: 'Failed to fetch risk score' }, 500);
+    }
+  }
+
+  const explanation = await generateRiskExplanation(riskScore, { AI: c.env.AI }, tokenName);
+
+  const result = { mint, score: riskScore.score, tier: riskScore.tier, explanation };
+
+  if (kv) {
+    c.executionCtx.waitUntil(
+      kv.put(`explain:${mint}`, JSON.stringify(result), { expirationTtl: 600 }),
+    );
+  }
+
+  return c.json({ ok: true, data: result }, 200, { 'x-cache': 'MISS' });
 });
 
 // ── Fee Positions ────────────────────────────────────────
@@ -885,6 +974,7 @@ app.post('/v1/token/create', async (c) => {
 
 app.post('/v1/token/fee-config', async (c) => {
   let body: {
+    baseMint?: string;
     feeClaimers?: FeeClaimerEntry[];
     payer?: string;
   };
@@ -894,6 +984,9 @@ app.post('/v1/token/fee-config', async (c) => {
     return c.json({ ok: false, error: 'Invalid JSON body' }, 400);
   }
 
+  if (!body.baseMint || !SOLANA_ADDR_RE.test(body.baseMint)) {
+    return c.json({ ok: false, error: 'Invalid baseMint (token mint address)' }, 400);
+  }
   if (!body.payer || !SOLANA_ADDR_RE.test(body.payer)) {
     return c.json({ ok: false, error: 'Invalid payer wallet address' }, 400);
   }
@@ -901,7 +994,6 @@ app.post('/v1/token/fee-config', async (c) => {
     return c.json({ ok: false, error: 'feeClaimers array required (wallet + bps entries)' }, 400);
   }
 
-  // Validate each entry has integer bps, then total = 10000
   for (const entry of body.feeClaimers) {
     if (!Number.isInteger(entry.userBps) || entry.userBps < 0) {
       return c.json({ ok: false, error: `Invalid bps value: ${entry.userBps} (must be non-negative integer)` }, 400);
@@ -914,13 +1006,14 @@ app.post('/v1/token/fee-config', async (c) => {
 
   try {
     const result = await createFeeShareConfig(
-      { feeClaimers: body.feeClaimers, payer: body.payer },
+      { baseMint: body.baseMint, feeClaimers: body.feeClaimers, payer: body.payer },
       c.env.BAGS_API_KEY,
     );
     return c.json({ ok: true, data: result });
   } catch (err) {
-    console.error('Fee config error:', err);
-    return c.json({ ok: false, error: 'Failed to create fee-share config' }, 500);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('Fee config error:', msg);
+    return c.json({ ok: false, error: msg }, 500);
   }
 });
 
@@ -1185,6 +1278,30 @@ app.get('/v1/alerts/feed', async (c) => {
 
   try {
     const feed = await getAlertFeed(kv);
+
+    const accept = c.req.header('accept') ?? '';
+    if (accept.includes('text/html')) {
+      const fmtTs = (ts: number) => new Date(ts).toISOString().replace('T',' ').slice(0,19) + ' UTC';
+      const sevColor = (s: string) => s==='critical'?'#f87171':s==='warning'?'#fb923c':s==='info'?'#38bdf8':'#94a3b8';
+      const alerts = (feed.alerts ?? []) as import('../../shared/types').RiskAlert[];
+      const rows = alerts.map((a) => `<tr>
+        <td><b>${String(a.tokenSymbol ?? (String(a.mint ?? '').slice(0,8)+'…'))}</b></td>
+        <td><span style="color:${sevColor(String(a.severity ?? ''))}">${String(a.severity ?? '—')}</span></td>
+        <td>${String(a.type ?? '—')}</td>
+        <td>${String(a.previousScore ?? '—')} → <b>${String(a.currentScore ?? '—')}</b></td>
+        <td>${String(a.currentTier ?? '—')}</td>
+        <td class="dim">${fmtTs(a.timestamp as number)}</td>
+      </tr>`).join('');
+      const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Sentinel — Alert Feed</title>
+<style>*{box-sizing:border-box}body{background:#0a0e17;color:#e2e8f0;font-family:system-ui,sans-serif;margin:0;padding:32px}h1{color:#fff;font-size:1.5rem;margin:0 0 4px}p.sub{color:#64748b;font-size:.85rem;margin:0 0 28px}table{width:100%;border-collapse:collapse;font-size:.875rem}th{text-align:left;color:#475569;font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;padding:6px 12px;border-bottom:1px solid #1e293b}td{padding:10px 12px;border-bottom:1px solid #1e293b16}tr:hover td{background:#ffffff08}.dim{color:#64748b;font-size:.8rem}.footer{margin-top:24px;font-size:.75rem;color:#334155}a{color:#38bdf8}</style></head><body>
+<h1>⬡ Sentinel — Alert Feed</h1>
+<p class="sub">${alerts.length} alerts · sorted newest first · live data from Bags token monitoring</p>
+<table><thead><tr><th>Token</th><th>Severity</th><th>Type</th><th>Score</th><th>Tier</th><th>Timestamp</th></tr></thead><tbody>${rows || '<tr><td colspan=6 style="color:#64748b;padding:20px 12px">No alerts yet.</td></tr>'}</tbody></table>
+<div class="footer">Raw JSON: <a href="?format=json">/v1/alerts/feed?format=json</a> · <a href="https://sentinel-dashboard-3uy.pages.dev" target="_blank">View dashboard ↗</a></div>
+</body></html>`;
+      return new Response(html, { headers: { 'content-type': 'text/html;charset=utf-8' } });
+    }
+
     return c.json({ ok: true, data: feed });
   } catch (err) {
     console.error('Alert feed error:', err);

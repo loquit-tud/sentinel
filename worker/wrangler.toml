@@ -21,6 +21,9 @@ preview_id = "6615319c926a4836ada7e73634004ffe"
 [triggers]
 crons = ["*/15 * * * *"]
 
+[ai]
+binding = "AI"
+
 # [[d1_databases]]
 # binding = "DB"
 # database_name = "sentinel-db"

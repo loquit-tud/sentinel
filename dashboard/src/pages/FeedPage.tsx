@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { TokenFeedItem, TokenPhase } from '../../../shared/types';
 
-type SortField = 'volume' | 'fdv' | 'change' | 'fees';
+type SortField = 'volume' | 'fdv' | 'change' | 'fees' | 'risk';
 type FilterTier = 'all' | 'safe' | 'caution' | 'danger';
 
 function formatUsd(n: number): string {
@@ -18,9 +18,10 @@ function formatFees(n: number): string {
 }
 
 const SORT_OPTIONS: { value: SortField; label: string }[] = [
-  { value: 'fees', label: 'Lifetime Fees' },
+  { value: 'risk',   label: '🚨 Danger First' },
+  { value: 'fees',   label: 'Lifetime Fees' },
   { value: 'volume', label: 'Volume 24h' },
-  { value: 'fdv', label: 'FDV' },
+  { value: 'fdv',    label: 'FDV' },
   { value: 'change', label: 'Price Change' },
 ];
 
@@ -184,10 +185,11 @@ export function FeedPage({ tokens, loading, onSelectToken }: {
     // Sort
     result.sort((a, b) => {
       switch (sortBy) {
+        case 'risk':   return (a.riskScore ?? 100) - (b.riskScore ?? 100); // lowest score = most dangerous
         case 'volume': return b.volume24h - a.volume24h;
-        case 'fdv': return b.fdv - a.fdv;
+        case 'fdv':    return b.fdv - a.fdv;
         case 'change': return b.priceChangePct24h - a.priceChangePct24h;
-        case 'fees': return b.lifetimeFees - a.lifetimeFees;
+        case 'fees':   return b.lifetimeFees - a.lifetimeFees;
       }
     });
 

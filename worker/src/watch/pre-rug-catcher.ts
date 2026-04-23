@@ -22,8 +22,9 @@
  * within CPU time. The cache is kept warm by `precomputeFeedRiskScores` in the same cron.
  */
 
-import type { TokenFeedItem, RiskScore, RiskTier, TokenPhase, TokenTrend } from '../../../shared/types';
+import type { TokenFeedItem, RiskScore, RiskTier, RiskBreakdown, TokenPhase, TokenTrend, AgentPolicyDecision, AgentPolicyInput } from '../../../shared/types';
 import { fetchTopTokens } from '../feed/bags';
+import { computeAgentPolicy } from '../agent/policy';
 
 export interface WatchSnapshot {
   mint: string;
@@ -60,6 +61,10 @@ export interface PreRugCatch {
   scoreDrop: number;
   tierTransition: string; // e.g. "caution→rug"
   reason: 'score_drop' | 'tier_crash';
+  // Agent reasoning trace (April 2026)
+  triggerSignals: string[];   // which signals fired the alert
+  creatorPrevRug: boolean;    // creator wallet has prior rug history
+  agentDecision?: AgentPolicyDecision; // policy engine decision
 }
 
 export interface WatchStats {
@@ -73,6 +78,7 @@ export interface WatchStats {
 export interface WatchEnv {
   SENTINEL_KV?: KVNamespace;
   BAGS_API_KEY?: string;
+  AI?: Ai;
 }
 
 const SNAP_TTL = 7 * 24 * 60 * 60;      // 7 days
@@ -182,8 +188,37 @@ function tierSeverity(tier: RiskTier): number {
   }
 }
 
+/** Build human-readable signal list from the breakdown at catch time */
+function generateTriggerSignals(breakdown: RiskBreakdown, drop: number, tierTransition: string): string[] {
+  const signals: string[] = [];
+
+  // Primary: what actually collapsed
+  if (drop >= 40) signals.push(`Score collapsed −${drop} pts (${tierTransition})`);
+  else if (drop >= 15) signals.push(`Score dropped −${drop} pts → ${tierTransition.split('→')[1]} tier`);
+
+  // Security signals — worst first
+  if (breakdown.honeypot < 20) signals.push('Honeypot risk confirmed');
+  else if (breakdown.honeypot < 50) signals.push('Honeypot risk flagged');
+
+  if (breakdown.lpLocked < 20) signals.push('LP fully unlocked — drain imminent');
+  else if (breakdown.lpLocked < 50) signals.push('LP partially unlocked');
+
+  if (breakdown.mintAuthority < 50) signals.push('Mint authority active — supply at risk');
+  if (breakdown.freezeAuthority < 50) signals.push('Freeze authority active');
+
+  if (breakdown.topHolderPct < 20) signals.push('Extreme whale concentration (top holders >80%)');
+  else if (breakdown.topHolderPct < 40) signals.push(`High whale concentration (top holders ~${100 - breakdown.topHolderPct}%)`);
+
+  if (breakdown.liquidityDepth < 20) signals.push('Critical liquidity depth — near zero');
+  else if (breakdown.liquidityDepth < 40) signals.push('Thin liquidity — high slippage risk');
+
+  if (breakdown.creatorReputation === 0) signals.push('Creator wallet has prior rug history');
+
+  return signals.slice(0, 5); // max 5 signals
+}
+
 /** Returns a catch record if conditions meet, else null. */
-function detectCatch(prev: WatchSnapshot, curr: { score: number; tier: RiskTier }, token: TokenFeedItem): PreRugCatch | null {
+function detectCatch(prev: WatchSnapshot, curr: { score: number; tier: RiskTier }, token: TokenFeedItem, breakdown?: RiskBreakdown | null): PreRugCatch | null {
   // Require the baseline snapshot to be at least MIN_LEAD_TIME_MS old.
   // This eliminates "calibration noise" — when the first snapshot is captured
   // from a partially-warmed cache (optimistic RugCheck-only score), and the
@@ -213,6 +248,8 @@ function detectCatch(prev: WatchSnapshot, curr: { score: number; tier: RiskTier 
     scoreDrop: drop,
     tierTransition: `${prev.tier}→${curr.tier}`,
     reason: isScoreDrop ? 'score_drop' : 'tier_crash',
+    triggerSignals: breakdown ? generateTriggerSignals(breakdown, drop, `${prev.tier}→${curr.tier}`) : [`Score dropped −${drop} pts`],
+    creatorPrevRug: breakdown ? breakdown.creatorReputation === 0 : false,
   };
 }
 
@@ -243,11 +280,34 @@ export async function runPreRugWatch(env: WatchEnv): Promise<number> {
         // Already have a catch recorded? skip detection to preserve first event.
         const existingCatch = await kv.get(`watch:catch:${token.mint}`);
         if (!existingCatch) {
-          const caught = detectCatch(prev, current, token);
+            const caught = detectCatch(prev, current, token, riskCached.breakdown ?? null);
           if (caught) {
-            await kv.put(`watch:catch:${token.mint}`, JSON.stringify(caught), { expirationTtl: CATCH_TTL });
-            await addToIndex(kv, caught);
-            newCatches++;
+            // Agent Policy Engine: decide action based on full context
+            const memory = await getMemory(kv, token.mint);
+            const policyInput: AgentPolicyInput = {
+              score: current.score,
+              prevScore: prev.score,
+              scoreDrop: caught.scoreDrop,
+              tierTransition: caught.tierTransition,
+              breakdown: riskCached.breakdown ?? { honeypot: 50, lpLocked: 50, mintAuthority: 50, freezeAuthority: 50, topHolderPct: 50, liquidityDepth: 50, volumeHealth: 50, creatorReputation: 50 },
+              phase: riskCached.pumpSignal?.phase,
+              trend: memory?.trend,
+              creatorPrevRug: caught.creatorPrevRug,
+              memory: memory ? { snapshots: memory.snapshots, lastReasoning: memory.lastReasoning } : undefined,
+            };
+            const decision = await computeAgentPolicy(policyInput, env);
+            caught.agentDecision = decision;
+
+            // Policy gates: only persist/broadcast if action is not 'monitor'
+            // 'log_alert': save to KV but don't count as catch for stats
+            // 'telegram_alert' | 'escalate': save + broadcast
+            if (decision.action !== 'monitor') {
+              await kv.put(`watch:catch:${token.mint}`, JSON.stringify(caught), { expirationTtl: CATCH_TTL });
+              if (decision.action !== 'log_alert') {
+                await addToIndex(kv, caught);
+                newCatches++;
+              }
+            }
           }
         }
       }

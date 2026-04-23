@@ -36,11 +36,12 @@ export interface LaunchTxResult {
 }
 
 export interface FeeClaimerEntry {
-  user: string;   // wallet base58
+  user: string;    // wallet base58
   userBps: number; // basis points
 }
 
 export interface FeeConfigParams {
+  baseMint: string;  // token mint (e.g. $SENT)
   feeClaimers: FeeClaimerEntry[];
   payer: string; // wallet base58
 }
@@ -168,7 +169,9 @@ export async function createFeeShareConfig(
   const result = await bagsPost<BagsFeeConfigResponse>(
     '/fee-share/config',
     {
-      feeClaimers: params.feeClaimers,
+      baseMint: params.baseMint,
+      basisPointsArray: params.feeClaimers.map((c) => c.userBps),
+      claimersArray: params.feeClaimers.map((c) => c.user),
       payer: params.payer,
     },
     apiKey,

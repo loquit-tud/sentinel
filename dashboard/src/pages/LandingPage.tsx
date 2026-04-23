@@ -3,12 +3,15 @@ import {
   fetchTokenFeed,
   fetchApiStats,
   fetchSentFeeStats,
-  runTokenSwarmCycle,
   fetchPreRugCatches,
+  fetchAlertFeed,
+  fetchRiskScore,
+  explainRisk,
   type SentFeeStats,
-  type SwarmCycleData,
   type PreRugCatch,
+  type RiskExplanation,
 } from '../api';
+import type { RiskAlert } from '../../../shared/types';
 
 // ─── Constants ─────────────────────────────────────────────────────────
 
@@ -196,22 +199,109 @@ function tierBadgeClass(tier: PreRugCatch['caughtTier']): string {
   }
 }
 
+interface EvidenceItem {
+  key: string;
+  symbol: string;
+  mint: string;
+  fromScore: number;
+  toScore: number;
+  drop: number;
+  toTier: PreRugCatch['caughtTier'];
+  flaggedAt: number;
+  firstSeenAt: number;
+  source: 'catch' | 'alert';
+  triggerSignals?: string[];
+  creatorPrevRug?: boolean;
+  agentDecision?: PreRugCatch['agentDecision'];
+}
+
 function PreRugCatchesBanner() {
-  const [data, setData] = useState<{ catches: PreRugCatch[]; stats: { tokensWatched: number; catches: number; lastRunAt: number; lastCatchAt: number | null; avgLeadTimeMs: number } } | null>(null);
+  const [items, setItems] = useState<EvidenceItem[]>([]);
+  const [stats, setStats] = useState<{ tokensWatched: number; catches: number; avgLeadTimeMs: number } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [explanations, setExplanations] = useState<Record<string, RiskExplanation | null>>({});
+  const [loadingExpl, setLoadingExpl] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchPreRugCatches(5).then((d) => {
-      setData(d);
+    Promise.all([
+      fetchPreRugCatches(10).catch(() => null),
+      fetchAlertFeed().catch(() => null),
+    ]).then(([catchData, alertData]) => {
+      const merged: EvidenceItem[] = [];
+
+      // Pre-rug catches (high quality, ≥30min lead time)
+      if (catchData) {
+        for (const c of catchData.catches) {
+          merged.push({
+            key: c.mint + c.caughtAt,
+            symbol: c.symbol || c.mint.slice(0, 6),
+            mint: c.mint,
+            fromScore: c.initialScore,
+            toScore: c.caughtScore,
+            drop: c.scoreDrop,
+            toTier: c.caughtTier,
+            flaggedAt: c.caughtAt,
+            firstSeenAt: c.initialAt,
+            source: 'catch',
+            triggerSignals: c.triggerSignals,
+            creatorPrevRug: c.creatorPrevRug,
+            agentDecision: c.agentDecision,
+          });
+        }
+        setStats(catchData.stats);
+      }
+
+      // Alert feed — tier_change warnings/critical not already in catches
+      if (alertData) {
+        const catchMints = new Set(merged.map((m) => m.mint));
+        const tierAlerts = alertData.alerts.filter(
+          (a: RiskAlert) =>
+            a.type === 'tier_change' &&
+            (a.severity === 'warning' || a.severity === 'critical') &&
+            !catchMints.has(a.mint),
+        );
+        for (const a of tierAlerts.slice(0, 10)) {
+          merged.push({
+            key: a.id,
+            symbol: a.tokenSymbol || a.mint.slice(0, 6),
+            mint: a.mint,
+            fromScore: a.previousScore ?? 0,
+            toScore: a.currentScore ?? 0,
+            drop: (a.previousScore ?? 0) - (a.currentScore ?? 0),
+            toTier: (a.currentTier ?? 'danger') as PreRugCatch['caughtTier'],
+            flaggedAt: a.timestamp,
+            firstSeenAt: a.timestamp,
+            source: 'alert',
+          });
+        }
+      }
+
+      // Sort newest first
+      // Pre-rug catches always appear first (they are the anchor proof), then alerts newest first
+      merged.sort((a, b) => {
+        if (a.source === 'catch' && b.source !== 'catch') return -1;
+        if (a.source !== 'catch' && b.source === 'catch') return 1;
+        return b.flaggedAt - a.flaggedAt;
+      });
+      setItems(merged.slice(0, 8));
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
 
-  // Hide entirely while loading first response; if endpoint fails or returns null, render nothing.
-  if (loading) return null;
-  if (!data) return null;
+  const handleExplain = async (item: EvidenceItem) => {
+    if (explanations[item.mint] !== undefined || loadingExpl === item.mint) return;
+    setLoadingExpl(item.mint);
+    try {
+      const result = await explainRisk(item.mint, item.symbol);
+      setExplanations((prev) => ({ ...prev, [item.mint]: result?.explanation ?? null }));
+    } catch {
+      setExplanations((prev) => ({ ...prev, [item.mint]: null }));
+    } finally {
+      setLoadingExpl(null);
+    }
+  };
 
-  const hasCatches = data.catches.length > 0;
+  if (loading) return null;
 
   return (
     <section className="px-6 py-14 border-t border-slate-800/50 bg-gradient-to-b from-red-950/10 via-transparent to-transparent">
@@ -221,63 +311,159 @@ function PreRugCatchesBanner() {
             <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
             Evidence chain
           </div>
-          <h2 className="text-2xl sm:text-3xl font-bold text-white">Pre-rug catches · live</h2>
+          <h2 className="text-2xl sm:text-3xl font-bold text-white">Risk events · live</h2>
           <p className="text-slate-400 mt-3 text-sm">
-            Every 15 minutes, our cron scans the top 100 Bags tokens and records the first moment a score
-            collapses ≥40 points or crashes into danger/rug tier. This is not a claim — it's a log.
+            Every 15 minutes, our cron scans the top 100 Bags tokens. Tier drops and score collapses are logged automatically — not curated.
           </p>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 mb-6 text-center">
-          <div className="p-3 rounded-lg border border-slate-800/60 bg-slate-900/40">
-            <div className="text-xl font-bold text-white">{data.stats.tokensWatched || 50}</div>
-            <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">Tokens watched</div>
+        {/* Proof of Alpha — agent performance metrics */}
+        {stats && (
+          <div className="mb-8 p-5 rounded-xl border border-green-500/20 bg-gradient-to-br from-green-950/30 via-slate-900/60 to-slate-900/40">
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-[9px] font-semibold tracking-widest uppercase text-green-400">⬡ Agent Performance · live proof</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+              <div>
+                <div className="text-3xl font-black text-white tabular-nums">{stats.catches || items.filter(i => i.source === 'catch').length}</div>
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1">Catches logged</div>
+              </div>
+              <div>
+                <div className="text-3xl font-black text-green-400 tabular-nums">
+                  {stats.avgLeadTimeMs > 0 ? formatLeadTime(stats.avgLeadTimeMs) : '—'}
+                </div>
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1">Avg lead time</div>
+              </div>
+              <div>
+                <div className="text-3xl font-black text-red-400 tabular-nums">
+                  {items.filter(i => i.drop > 0).length > 0
+                    ? `−${Math.round(items.filter(i => i.drop > 0).reduce((s, i) => s + i.drop, 0) / items.filter(i => i.drop > 0).length)}`
+                    : '—'}
+                </div>
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1">Avg score drop</div>
+              </div>
+              <div>
+                <div className="text-3xl font-black text-white tabular-nums">{stats.tokensWatched || 100}</div>
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-1">Tokens watched</div>
+              </div>
+            </div>
+            <div className="mt-3 pt-3 border-t border-slate-800/40 flex items-center justify-between text-[10px] text-slate-600">
+              <span>Every catch is timestamped · lead time = time between first snapshot and alert</span>
+              <a href="https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=100" target="_blank" rel="noopener" className="text-cyan-500 hover:underline">verify →</a>
+            </div>
           </div>
-          <div className="p-3 rounded-lg border border-slate-800/60 bg-slate-900/40">
-            <div className="text-xl font-bold text-white">{data.stats.catches}</div>
-            <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">Catches to date</div>
-          </div>
-          <div className="p-3 rounded-lg border border-slate-800/60 bg-slate-900/40">
-            <div className="text-xl font-bold text-white">{formatLeadTime(data.stats.avgLeadTimeMs)}</div>
-            <div className="text-[10px] text-slate-500 uppercase tracking-wider mt-0.5">Avg lead time</div>
-          </div>
-        </div>
+        )}
 
-        {!hasCatches ? (
+        {items.length === 0 ? (
           <div className="p-5 rounded-xl border border-slate-800/60 bg-slate-900/40 text-center">
             <p className="text-sm text-slate-400">
-              <span className="text-green-400 font-medium">No catches yet.</span> The watcher is running —
-              catches will appear here when a tracked token's score collapses.
-            </p>
-            <p className="text-[11px] text-slate-600 mt-2">
-              Raw feed: <a href="https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches" target="_blank" rel="noopener" className="text-cyan-400 hover:underline">GET /v1/watch/catches</a>
+              <span className="text-green-400 font-medium">No events yet.</span> The watcher is running every 15 minutes.
             </p>
           </div>
         ) : (
           <div className="space-y-2">
-            {data.catches.map((c) => (
-              <div key={c.mint + c.caughtAt} className="p-3.5 rounded-lg border border-slate-800/60 bg-slate-900/40 flex items-center gap-3 text-sm">
+            {items.map((c) => (
+              <div key={c.key} className="rounded-lg border border-slate-800/60 bg-slate-900/40 overflow-hidden">
+                <div className="p-3.5 flex items-center gap-3 text-sm">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-white truncate">{c.symbol || c.mint.slice(0, 6)}</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-white truncate">{c.symbol}</span>
                     <span className="text-[10px] font-mono text-slate-600 truncate">{c.mint.slice(0, 4)}…{c.mint.slice(-4)}</span>
+                    {c.source === 'catch' && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded border border-cyan-500/20 text-cyan-500 bg-cyan-500/5">pre-rug</span>
+                    )}
+                    {c.creatorPrevRug && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded border border-red-500/30 text-red-400 bg-red-500/10 font-semibold">⚠ repeat offender</span>
+                    )}
+                    {c.agentDecision && (
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded border font-semibold whitespace-nowrap ${
+                        c.agentDecision.action === 'escalate'        ? 'border-red-500/50 text-red-300 bg-red-500/15' :
+                        c.agentDecision.action === 'telegram_alert'  ? 'border-orange-500/40 text-orange-300 bg-orange-500/10' :
+                        c.agentDecision.action === 'log_alert'       ? 'border-slate-600/40 text-slate-400 bg-slate-800/30' :
+                        c.agentDecision.action === 'rescan_soon'     ? 'border-yellow-500/30 text-yellow-400 bg-yellow-500/8' :
+                        'border-green-500/20 text-green-500 bg-green-500/5'
+                      }`}
+                        title={`Agent decision (${c.agentDecision.decidedBy}, ${c.agentDecision.confidence}% confidence): ${c.agentDecision.reasoning}`}
+                      >
+                        {c.agentDecision.action === 'escalate'        ? '🚨 escalated' :
+                         c.agentDecision.action === 'telegram_alert'  ? '📡 broadcast' :
+                         c.agentDecision.action === 'log_alert'       ? '📝 logged' :
+                         c.agentDecision.action === 'rescan_soon'     ? '⚡ rescanning' :
+                         '👁 watching'}
+                      </span>
+                    )}
                   </div>
                   <div className="text-[11px] text-slate-500 mt-0.5">
-                    Flagged {formatLeadTime(Date.now() - c.caughtAt)} ago · first seen {formatLeadTime(Date.now() - c.initialAt)} ago
+                    Flagged {formatLeadTime(Date.now() - c.flaggedAt)} ago
+                    {c.source === 'catch' && c.firstSeenAt !== c.flaggedAt && (
+                      <> · first seen {formatLeadTime(Date.now() - c.firstSeenAt)} ago</>
+                    )}
                   </div>
+                  {/* Agent reasoning trace */}
+                  {c.triggerSignals && c.triggerSignals.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5">
+                      {c.triggerSignals.map((sig, i) => (
+                        <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800/60 text-slate-400 border border-slate-700/40">
+                          {sig}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="text-right shrink-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] text-slate-500 line-through">{c.initialScore}</span>
-                    <span className="text-[11px] text-slate-600">→</span>
-                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${tierBadgeClass(c.caughtTier)}`}>{c.caughtScore}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="text-right">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-slate-500 line-through">{c.fromScore}</span>
+                      <span className="text-[11px] text-slate-600">→</span>
+                      <span className={`text-xs font-bold px-1.5 py-0.5 rounded border ${tierBadgeClass(c.toTier)}`}>{c.toScore}</span>
+                    </div>
+                    {c.drop > 0 && <div className="text-[10px] text-red-400 mt-0.5">−{c.drop} pts</div>}
                   </div>
-                  <div className="text-[10px] text-red-400 mt-0.5">−{c.scoreDrop} pts</div>
+                  <button
+                    onClick={() => handleExplain(c)}
+                    disabled={loadingExpl === c.mint || explanations[c.mint] !== undefined}
+                    className="text-[10px] font-medium px-2 py-1 rounded border border-violet-500/30 bg-violet-500/5 text-violet-400 hover:bg-violet-500/15 disabled:opacity-40 disabled:cursor-default transition-all whitespace-nowrap"
+                    title="Ask AI why this token is risky"
+                  >
+                    {loadingExpl === c.mint ? '…' : explanations[c.mint] !== undefined ? '✓ AI' : '✦ Why?'}
+                  </button>
                 </div>
+                </div>
+                {/* AI Explanation Panel */}
+                {explanations[c.mint] && (
+                  <div className="border-t border-slate-800/60 bg-violet-950/20 px-4 py-3 space-y-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[9px] font-semibold tracking-widest uppercase text-violet-400">✦ Sentinel AI Analysis</span>
+                      <span className={`text-[9px] px-1 py-0.5 rounded border ${
+                        explanations[c.mint]!.confidence === 'high' ? 'border-green-500/20 text-green-400 bg-green-500/5' :
+                        explanations[c.mint]!.confidence === 'medium' ? 'border-yellow-500/20 text-yellow-400 bg-yellow-500/5' :
+                        'border-slate-600/40 text-slate-500 bg-slate-800/30'
+                      }`}>{explanations[c.mint]!.confidence} confidence</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">{explanations[c.mint]!.why}</p>
+                    <div className="flex flex-col sm:flex-row gap-2 text-[11px]">
+                      <div className="flex gap-1.5 items-start">
+                        <span className="text-violet-400 shrink-0">Pattern:</span>
+                        <span className="text-slate-400">{explanations[c.mint]!.pattern}</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-1.5 items-start text-[11px]">
+                      <span className="text-cyan-400 shrink-0">Action:</span>
+                      <span className="text-slate-300 font-medium">{explanations[c.mint]!.action}</span>
+                    </div>
+                  </div>
+                )}
+                {explanations[c.mint] === null && (
+                  <div className="border-t border-slate-800/60 bg-slate-900/20 px-4 py-2">
+                    <p className="text-[10px] text-slate-600">AI analysis unavailable for this token.</p>
+                  </div>
+                )}
               </div>
             ))}
             <p className="text-center text-[11px] text-slate-600 mt-3">
-              Full list: <a href="https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=100" target="_blank" rel="noopener" className="text-cyan-400 hover:underline">GET /v1/watch/catches?limit=100</a>
+              Raw log: <a href="https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=100" target="_blank" rel="noopener" className="text-cyan-400 hover:underline">GET /v1/watch/catches</a>
+              {' · '}
+              <a href="https://sentinel-api.apiworkersdev.workers.dev/v1/alerts/feed" target="_blank" rel="noopener" className="text-cyan-400 hover:underline">GET /v1/alerts/feed</a>
             </p>
           </div>
         )}
@@ -286,79 +472,83 @@ function PreRugCatchesBanner() {
   );
 }
 
-// ─── Live Demo: BagsSwarm (5-agent AI consensus) ─────────────────────
+// ─── Live Risk Score Card (instant scan on $SENT) ────────────────────
 
-function SwarmDemoCard({ mint }: { mint: string }) {
-  const [data, setData] = useState<SwarmCycleData | null>(null);
+function LiveRiskCard({ mint }: { mint: string }) {
+  const [score, setScore] = useState<number | null>(null);
+  const [tier, setTier] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [ran, setRan] = useState(false);
 
   const run = async () => {
     setLoading(true);
-    setError(null);
-    setData(null);
     try {
-      const result = await runTokenSwarmCycle(mint);
-      setData(result);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed');
+      const result = await fetchRiskScore(mint);
+      if (result) {
+        setScore(result.score);
+        setTier(result.tier);
+      }
+    } catch {
+      // ignore
     } finally {
       setLoading(false);
+      setRan(true);
     }
   };
+
+  const tierColor = tier === 'safe' ? 'text-green-400' : tier === 'caution' ? 'text-yellow-400' : tier === 'danger' ? 'text-orange-400' : 'text-red-400';
+  const tierBg = tier === 'safe' ? 'bg-green-500/10 border-green-500/20' : tier === 'caution' ? 'bg-yellow-500/10 border-yellow-500/20' : tier === 'danger' ? 'bg-orange-500/10 border-orange-500/20' : 'bg-red-500/10 border-red-500/20';
 
   return (
     <div className="bg-gradient-to-br from-slate-900/80 to-slate-900/40 rounded-xl p-5 border border-slate-800/50">
       <div className="flex items-start justify-between mb-3 gap-3">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-xl">🤖</span>
-            <h3 className="text-white font-semibold text-sm tracking-tight">BagsSwarm AI Consensus</h3>
+            <span className="text-xl">🔍</span>
+            <h3 className="text-white font-semibold text-sm tracking-tight">Live Risk Scanner</h3>
           </div>
-          <p className="text-[11px] text-slate-500">5 agents · majority voting · DexScreener-enriched</p>
+          <p className="text-[11px] text-slate-500">8 signals · RugCheck · Helius · Birdeye · Bags</p>
         </div>
         <button
           onClick={run}
           disabled={loading}
           className="text-[11px] font-medium px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 hover:border-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all whitespace-nowrap"
         >
-          {loading ? 'Voting…' : data ? 'Re-run' : 'Run live'}
+          {loading ? 'Scanning…' : ran ? 'Re-scan' : 'Scan $SENT'}
         </button>
       </div>
 
-      {error && <p className="text-[11px] text-rose-400 mt-2">{error}</p>}
-
-      {!data && !loading && !error && (
+      {!ran && !loading && (
         <div className="text-[11px] text-slate-600 italic mt-2">
-          Click "Run live" — 5 specialized agents analyze the token and vote on a verdict.
+          Click "Scan $SENT" — runs all 8 risk signals live against our own token.
         </div>
       )}
 
       {loading && (
         <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-2">
           <span className="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse" />
-          Risk · Volume · Sentiment · Whale · Creator agents voting…
+          Querying RugCheck · Helius · Birdeye · Bags…
         </div>
       )}
 
-      {data && (
-        <div className="mt-3 space-y-3 animate-fade-in">
-          <p className="text-[12px] text-slate-300 leading-relaxed line-clamp-4">{data.summary}</p>
-
-          <div className="flex flex-wrap gap-1.5">
-            {data.agentStatuses.slice(0, 5).map((a) => (
-              <div key={a.agentId} className="bg-black/30 rounded-md px-2 py-1 border border-slate-800/50 min-w-[90px]">
-                <p className="text-[10px] text-gray-400 truncate">{a.name}</p>
-                <p className="text-[10px] text-gray-600 truncate">
-                  {a.status} · {a.voteCount} vote{a.voteCount === 1 ? '' : 's'}
-                </p>
-              </div>
-            ))}
+      {ran && score !== null && !loading && (
+        <div className="mt-3 flex items-center gap-4 animate-fade-in">
+          <div className="relative w-16 h-16 shrink-0">
+            <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+              <circle cx="18" cy="18" r="15.9" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="3" />
+              <circle cx="18" cy="18" r="15.9" fill="none" stroke="currentColor"
+                className={tierColor}
+                strokeWidth="3"
+                strokeDasharray={`${score} ${100 - score}`}
+                strokeLinecap="round" />
+            </svg>
+            <span className={`absolute inset-0 flex items-center justify-center text-sm font-bold ${tierColor}`}>{score}</span>
           </div>
-
-          <p className="text-[11px] text-gray-500">
-            {data.decisions.length} decision{data.decisions.length === 1 ? '' : 's'} reached consensus
-          </p>
+          <div>
+            <span className={`text-xs font-bold px-2 py-1 rounded-md border uppercase tracking-wide ${tierColor} ${tierBg}`}>{tier}</span>
+            <p className="text-[11px] text-slate-500 mt-1.5">$SENT · Sentinel's own token</p>
+            <p className="text-[10px] text-slate-600 mt-0.5">scored by the same engine protecting every Bags token</p>
+          </div>
         </div>
       )}
     </div>
@@ -541,7 +731,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
           </div>
 
           <div className="grid lg:grid-cols-2 gap-4">
-            <SwarmDemoCard mint={SENT_MINT} />
+            <LiveRiskCard mint={SENT_MINT} />
 
             <div className="bg-gradient-to-br from-slate-900/80 to-slate-900/40 rounded-xl p-5 border border-slate-800/50 flex flex-col justify-between">
               <div>
