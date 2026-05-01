@@ -2,7 +2,9 @@
 
 > **Don't trade blind.**
 
-AI risk intelligence + wallet portfolio scanner for [Bags](https://bags.fm) traders & creators. Built for the [Bags Hackathon](https://bags.fm/hackathon) ($4M funding) — Track: **AI Agents**.
+AI risk intelligence + autonomous pre-rug watcher for [Bags](https://bags.fm) traders & creators.
+
+**Built for the [Bags Hackathon](https://bags.fm/hackathon) ($4M funding) — Track: AI Agents · Deadline: June 2, 2026**
 
 **$SENT**: [`Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS`](https://bags.fm/token/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS) — launched on Bags
 
@@ -11,6 +13,29 @@ AI risk intelligence + wallet portfolio scanner for [Bags](https://bags.fm) trad
 [![CI](https://github.com/loquit-doru/sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/loquit-doru/sentinel/actions)
 [![Telegram](https://img.shields.io/badge/Telegram-@SentinelRiskAlerts-26A5E4?style=flat-square)](https://t.me/SentinelRiskAlerts)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?style=flat-square)](https://typescriptlang.org)
+
+---
+
+## Verify in 2 minutes (no setup, no login)
+
+```bash
+# 1. Is the agent running? (169 tokens tracked, scans every 15 min)
+curl https://sentinel-api.apiworkersdev.workers.dev/health
+
+# 2. See the pre-rug catches (timestamped, logged by cron — not manually)
+curl https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=10
+
+# 3. Score any Bags token in real time
+curl https://sentinel-api.apiworkersdev.workers.dev/v1/risk/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS
+
+# 4. Open the live dashboard
+# → https://sentinel-dashboard-3uy.pages.dev
+
+# 5. Check the Telegram channel (auto-posted by agent, not us)
+# → https://t.me/SentinelRiskAlerts
+```
+
+**Key proof**: On April 23, 2026 at `1776803570712` (Unix ms), the autonomous cron agent logged `$BAG` as a pre-rug catch — 32 minutes before the price collapse. Score dropped 65→35. No human triggered this. [Verify →](https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=10)
 
 ---
 
@@ -23,6 +48,18 @@ The frustrating part: the signal was there 40 minutes before price collapsed. Sc
 So we built the thing that watches. Then we got 20 false alarms in the first hour from cache warm-up artifacts (partial RugCheck data triggering fake tier transitions). We fixed that with a minimum lead-time filter and a self-healing purge on every cron tick. Then we got a real catch: `$BAG`, flagged 32 minutes before collapse. That's when we knew the mechanism worked.
 
 The project has gone through 4 rounds of page pruning because we kept adding things that looked cool but weren't actually Bags-native. What's left is what earns its place.
+
+---
+
+## Screenshots
+
+| Landing — live stats from the agent | Discovery feed — top Bags tokens with risk scores |
+|---|---|
+| ![Landing](docs/screenshots/01-landing.png) | ![Discovery](docs/screenshots/03-feed.png) |
+
+| Risk Alert Feed — tier changes & LP events | Wallet X-Ray — portfolio health scan |
+|---|---|
+| ![Alerts](docs/screenshots/04-alerts.png) | [→ live demo](https://sentinel-dashboard-3uy.pages.dev) |
 
 ---
 
@@ -459,6 +496,27 @@ Get API keys from:
 - [Bags Developer Dashboard](https://dev.bags.fm)
 - [Helius](https://helius.dev)
 - [Birdeye](https://birdeye.so)
+
+---
+
+## Hackathon Checklist
+
+What we shipped for the **Bags Hackathon — AI Agents track**:
+
+| Requirement | Status | Evidence |
+|------------|--------|----------|
+| Bags-native integration | ✅ | Token feed, fee positions, partner API, claim tx builder |
+| Bags Partner registration | ✅ | On-chain TX `2RVRTcGEkzsepjga18...` |
+| $SENT token on Bags | ✅ | [`Az1LWL...BAGS`](https://bags.fm/token/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS) |
+| Autonomous AI agent | ✅ | Cron every 15min, zero human input, logs catches |
+| Live product | ✅ | [sentinel-dashboard-3uy.pages.dev](https://sentinel-dashboard-3uy.pages.dev) |
+| Real catch (pre-rug) | ✅ | $BAG flagged 32min before collapse, timestamped |
+| Public Telegram channel | ✅ | [@SentinelRiskAlerts](https://t.me/SentinelRiskAlerts) — auto-posted |
+| MCP Server (AI tools) | ✅ | 15 tools for Claude integration |
+| Open source | ✅ | MIT license, this repo |
+| Fee-share wallets | ✅ | 4000/3000/2000/1000 BPS config in `shared/constants.ts` |
+
+**Submission**: [bags.fm/apply](https://bags.fm/apply) + [DoraHacks BUIDL](https://dorahacks.io)
 
 ---
 
