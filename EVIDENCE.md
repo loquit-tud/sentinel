@@ -34,7 +34,7 @@ Every token gets a **0-100 score** composed of 8 weighted factors. Each factor h
 LIMIT=50 npx tsx scripts/scan-top-tokens.ts
 ```
 
-This hits our own `/v1/tokens/feed` (Bags lifetime-fees leaderboard) then scores each token through `/v1/risk/token/:mint`. Full raw output: [scripts/out/scan-results.json](scripts/out/scan-results.json).
+This hits our own `/v1/tokens/feed` (Bags lifetime-fees leaderboard) then scores each token through `/v1/risk/:mint`. Full raw output: [scripts/out/scan-results.json](scripts/out/scan-results.json).
 
 **Latest run** (2026-04-21):
 - Scanned: **50 tokens** (top of Bags leaderboard)
@@ -65,7 +65,7 @@ For any token where RugCheck's flag system catches a clear rug, our engine shoul
 
 ```bash
 # 1. Our verdict
-curl "https://sentinel-api.apiworkersdev.workers.dev/v1/risk/token/<mint>" \
+curl "https://sentinel-api.apiworkersdev.workers.dev/v1/risk/<mint>" \
   | jq '{score, tier, breakdown}'
 
 # 2. Ground truth
@@ -74,6 +74,16 @@ curl "https://api.rugcheck.xyz/v1/tokens/<mint>/report" \
 ```
 
 **Alignment expectation**: if RugCheck says `rugged: true`, our score should be < 10 (rug tier) because of the instant-rug override in [engine.ts L48](worker/src/risk/engine.ts). If we *disagree* with RugCheck on a rugged token, that's a bug — please open an issue with the mint and both responses.
+
+---
+
+## Telegram (self-serve commands + alerts)
+
+Sentinel supports **Telegram self-serve** (commands + watchlists) and **creator-first alerts**.
+
+- Docs: [docs/telegram.md](docs/telegram.md)
+- Bot: `@Sentinelbags_bot` (send `/start`)
+- Commands: `/status`, `/why`, `/watch`, `/report`
 
 ---
 
@@ -142,9 +152,6 @@ The cron runs every 15 minutes via `wrangler.toml` `triggers.crons = ["*/15 * * 
 | Multi-source data (no single point of failure) | 4 sources (RugCheck, Helius, Birdeye, Bags) in parallel `Promise.all` |
 | $SENT launched on Bags | [bags.fm/token/Az1LWL…](https://bags.fm/token/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS) |
 | Partner REST integration | [worker/src/partner/bags-partner.ts](worker/src/partner/bags-partner.ts) — 4 Bags partner endpoints consumed |
-| Firewall pre-signature screen | [worker/src/firewall/engine.ts](worker/src/firewall/engine.ts) — ALLOW/WARN/BLOCK verdict |
-| Insurance pool auto-payout | [worker/src/insurance/pool.ts](worker/src/insurance/pool.ts) — triggered on score drop ≥40 or rug tier |
-| Multi-agent BFT consensus | [worker/src/swarm/](worker/src/swarm) — 5 agents, 2/3 supermajority |
 | Code-split dashboard | Main bundle 653 KB / 196 KB gzip; 13 lazy chunks (5-20 KB) |
 | Security: CORS whitelist, rate limits | [worker/src/index.ts](worker/src/index.ts) — 60 req/min/IP `/v1/risk/*`, 120 `/v1/embed/*` |
 

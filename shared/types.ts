@@ -21,6 +21,10 @@ export interface RiskScore {
   timestamp: number;      // Unix ms
   cached: boolean;
   pumpSignal?: PumpSignal; // optional — present when Bags stats24h data available
+  /** Signals where data was unavailable — score was imputed, not measured */
+  missingSignals?: string[];
+  /** 0.0–1.0 — how much of the score is based on real data */
+  dataConfidence?: number;
 }
 
 export function tierFromScore(score: number): RiskTier {
@@ -248,10 +252,25 @@ export interface RiskAlert {
   currentTier: RiskTier;
   timestamp: number;         // Unix ms
   creatorWallet: string | null;
+  /** Risk endpoint metadata at time of alert (optional) */
+  dataConfidence?: number;     // 0.0–1.0
+  missingSignals?: string[];   // e.g. ["liquidityDepth","volumeHealth"]
   // LP drain specific fields
   liquidityUsd?: number;       // current liquidity in USD
   prevLiquidityUsd?: number;   // previous liquidity in USD
   liquidityDropPct?: number;   // % drop since last scan
+  /** RugCheck market evidence (optional, best-effort) */
+  marketPubkey?: string;
+  lpMint?: string;
+  lpLockedPct?: number;        // 0-100
+  lpLockedUsd?: number;        // USD value of locked LP (if available)
+  /**
+   * LP drain confirmation marker.
+   * - true: confirmed across multiple scans (or catastrophic drop)
+   * - false: early warning / unconfirmed single-scan signal
+   * Undefined for non-lp_drain alerts.
+   */
+  confirmed?: boolean;
 }
 
 export interface AlertFeed {

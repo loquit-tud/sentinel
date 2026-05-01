@@ -2,36 +2,8 @@
 GET https://sentinel-api.apiworkersdev.workers.dev/health
 
 ### ── Swarm: Run full cycle ──────────────────────────────
-POST https://sentinel-api.apiworkersdev.workers.dev/v1/swarm/run
-Content-Type: application/json
-
-{
-  "wallet": "Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS"
-}
-
-### ── Swarm: Get state ───────────────────────────────────
-GET https://sentinel-api.apiworkersdev.workers.dev/v1/swarm/state/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS
-
-### ── Swarm: Get latest cycle ────────────────────────────
-GET https://sentinel-api.apiworkersdev.workers.dev/v1/swarm/cycle/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS
-
-### ── Swarm: Queue trade intent ──────────────────────────
-POST https://sentinel-api.apiworkersdev.workers.dev/v1/swarm/trade-intent
-Content-Type: application/json
-
-{
-  "wallet": "Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS",
-  "outputMint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
-  "amountLamports": 100000000
-}
-
-### ── Swarm: Run cycle after trade intent ────────────────
-POST https://sentinel-api.apiworkersdev.workers.dev/v1/swarm/run
-Content-Type: application/json
-
-{
-  "wallet": "Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS"
-}
+### (Removed) Swarm endpoints
+# Swarm was removed from this repo. Use /v1/risk/*, /v1/portfolio/*, /v1/fees/*, /v1/alerts/* instead.
 
 ### ── Existing: Risk Score ───────────────────────────────
 GET https://sentinel-api.apiworkersdev.workers.dev/v1/risk/DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263

@@ -40,21 +40,21 @@ describe('buildLpDrainMessage', () => {
   it('uses RUG ALERT header for critical severity', () => {
     const msg = buildLpDrainMessage(...BASE_ARGS);
     expect(msg).toContain('🚨');
-    expect(msg).toContain('RUG ALERT');
-    expect(msg).toContain('Exit window may be closing');
+    expect(msg).toContain('LP DRAIN DETECTED');
+    expect(msg).toContain('Severe drain');
   });
 
   it('uses Warning header for non-critical severity', () => {
     const msg = buildLpDrainMessage('SOL', 'Solana', 'So111', 50_000, 35_000, 30, 'warning', 'https://example.com');
     expect(msg).toContain('⚠️');
-    expect(msg).toContain('LP Drain Warning');
-    expect(msg).toContain('Monitor closely');
+    expect(msg).toContain('LP drain detected (early)');
+    expect(msg.toLowerCase()).toContain('monitor closely');
   });
 
   it('includes dashboard link', () => {
     const msg = buildLpDrainMessage(...BASE_ARGS);
     expect(msg).toContain('https://sentinel.example.com/token/So11');
-    expect(msg).toContain('View on Sentinel');
+    expect(msg).toContain('View token on Sentinel');
   });
 
   it('uses HTML formatting', () => {

@@ -7,6 +7,12 @@ import {
   fetchAlertFeed,
   fetchRiskScore,
   explainRisk,
+  resolveTelegramChatId,
+  subscribeAlerts,
+  unsubscribeAlerts,
+  fetchSubscription,
+  fetchTelegramBotInfo,
+  fetchAlertSubscriberCount,
   type SentFeeStats,
   type PreRugCatch,
   type RiskExplanation,
@@ -610,6 +616,55 @@ function HeroSearch({ onScanToken }: { onScanToken: (mint: string) => void }) {
 
 export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; onScanToken: (mint: string) => void }) {
   const stats = useLiveStats();
+  const [tgUsername, setTgUsername] = useState('');
+  const [creatorWallet, setCreatorWallet] = useState('');
+  const [resolvedChatId, setResolvedChatId] = useState<string | null>(null);
+  const [subStatus, setSubStatus] = useState<string | null>(null);
+  const [subBusy, setSubBusy] = useState(false);
+  const [subInfo, setSubInfo] = useState<{ subscribed: boolean; wallet?: string | null } | null>(null);
+  const [botInfo, setBotInfo] = useState<{ username: string; deepLink: string } | null>(null);
+  const [subscriberCount, setSubscriberCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetchTelegramBotInfo().then(setBotInfo).catch(() => {});
+    fetchAlertSubscriberCount().then(setSubscriberCount).catch(() => {});
+  }, []);
+
+  const handleTelegramSubscribe = async () => {
+    setSubBusy(true);
+    setSubStatus(null);
+    try {
+      const username = tgUsername.trim();
+      // Username is optional; if omitted, we auto-detect the most recent private chat update.
+      const chatId = await resolveTelegramChatId(username || undefined);
+      setResolvedChatId(chatId);
+      const msg = await subscribeAlerts({ chatId, wallet: creatorWallet.trim() || undefined });
+      setSubStatus(msg);
+      const info = await fetchSubscription(chatId);
+      setSubInfo({ subscribed: info.subscribed, wallet: info.wallet ?? null });
+    } catch (e) {
+      setSubStatus(e instanceof Error ? e.message : 'Subscribe failed');
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
+  const handleTelegramUnsubscribe = async () => {
+    setSubBusy(true);
+    setSubStatus(null);
+    try {
+      const chatId = resolvedChatId;
+      if (!chatId) throw new Error('Resolve chatId first (subscribe once)');
+      await unsubscribeAlerts(chatId);
+      setSubStatus('Unsubscribed.');
+      const info = await fetchSubscription(chatId);
+      setSubInfo({ subscribed: info.subscribed, wallet: info.wallet ?? null });
+    } catch (e) {
+      setSubStatus(e instanceof Error ? e.message : 'Unsubscribe failed');
+    } finally {
+      setSubBusy(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -673,7 +728,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
           </h1>
 
           <p className="text-base sm:text-lg text-slate-400 max-w-md mx-auto leading-relaxed">
-            Real-time adversarial risk intelligence for Bags token launches.
+            Autonomous risk monitoring for Bags token launches. Alerts before the collapse — not after.
           </p>
 
           <HeroSearch onScanToken={onScanToken} />
@@ -742,21 +797,112 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
                 <p className="text-[11px] text-slate-500 leading-relaxed mt-2">
                   Every 15 minutes, a cron agent scans 100 Bags tokens.
                   When a score collapses, it <span className="text-white">automatically posts to Telegram</span> — no human trigger, no dashboard to check.
-                  Subscribe once, get warned before price reacts.
+                  Subscribe once, get warned before price reacts. Creators can filter alerts by their wallet to avoid noise.
                 </p>
                 <div className="mt-3 flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   <span className="text-[10px] text-emerald-400 font-medium">Live: @SentinelRiskAlerts on Telegram</span>
+                  {typeof subscriberCount === 'number' && (
+                    <span className="text-[10px] text-slate-600">· {subscriberCount} subs</span>
+                  )}
+                </div>
+
+                <div className="mt-4 rounded-xl border border-slate-800/60 bg-slate-950/30 p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[10px] text-slate-500">
+                      DM the bot once (send <span className="font-mono text-slate-300">/start</span>), then connect here:
+                    </div>
+                    {botInfo && (
+                      <a
+                        href={botInfo.deepLink}
+                        target="_blank"
+                        rel="noopener"
+                        className="text-[10px] px-2 py-1 rounded-md border border-slate-800/70 text-slate-400 hover:text-cyan-300 hover:border-cyan-500/30 transition-all whitespace-nowrap"
+                      >
+                        Open bot DM @{botInfo.username} →
+                      </a>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      value={tgUsername}
+                      onChange={(e) => setTgUsername(e.target.value)}
+                      placeholder="@yourname (optional)"
+                      className="w-full px-3 py-2 text-xs rounded-lg bg-black/30 border border-slate-800/70 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/40"
+                    />
+                    <input
+                      value={creatorWallet}
+                      onChange={(e) => setCreatorWallet(e.target.value)}
+                      placeholder="Creator wallet (optional)"
+                      className="w-full px-3 py-2 text-xs rounded-lg bg-black/30 border border-slate-800/70 text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-cyan-500/40"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleTelegramSubscribe}
+                      disabled={subBusy}
+                      className={`text-[11px] font-medium px-3 py-1.5 rounded-lg border whitespace-nowrap transition-all ${
+                        subBusy
+                          ? 'bg-cyan-500/10 text-cyan-300/60 border-cyan-500/10 cursor-wait'
+                          : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20 hover:bg-cyan-500/20 hover:border-cyan-500/30'
+                      }`}
+                    >
+                      {subBusy ? 'Working…' : 'Connect Telegram'}
+                    </button>
+                    <button
+                      onClick={handleTelegramUnsubscribe}
+                      disabled={subBusy || !resolvedChatId}
+                      className="text-[11px] font-medium px-3 py-1.5 rounded-lg border border-slate-800/70 text-slate-400 hover:text-slate-200 hover:border-slate-700/70 transition-all disabled:opacity-40"
+                    >
+                      Disconnect
+                    </button>
+                    {resolvedChatId && (
+                      <span className="text-[10px] text-slate-600 font-mono ml-auto">
+                        chatId: {resolvedChatId}
+                      </span>
+                    )}
+                  </div>
+                  {(subStatus || subInfo) && (
+                    <div className="text-[11px] text-slate-500">
+                      {subStatus && <div>{subStatus}</div>}
+                      {subInfo && (
+                        <div className="mt-1 text-[10px] text-slate-600">
+                          Status: <span className="text-slate-400">{subInfo.subscribed ? 'connected' : 'not connected'}</span>
+                          {subInfo.wallet ? <> · wallet filter: <span className="font-mono">{subInfo.wallet.slice(0, 6)}…{subInfo.wallet.slice(-4)}</span></> : null}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="pt-2 border-t border-slate-800/60">
+                    <div className="text-[10px] text-slate-600 font-semibold uppercase tracking-widest">Bot commands</div>
+                    <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-[10px] text-slate-500">
+                      <div><span className="font-mono text-slate-300">/status &lt;mint&gt;</span> — score + tier</div>
+                      <div><span className="font-mono text-slate-300">/why &lt;mint&gt;</span> — explanation</div>
+                      <div><span className="font-mono text-slate-300">/watch &lt;mint&gt;</span> — watchlist</div>
+                      <div><span className="font-mono text-slate-300">/report</span> — quick summary</div>
+                    </div>
+                    <a
+                      href="https://github.com/loquit-doru/sentinel/blob/master/docs/telegram.md"
+                      target="_blank"
+                      rel="noopener"
+                      className="inline-flex mt-2 text-[10px] text-cyan-400 hover:underline"
+                    >
+                      Setup + troubleshooting docs ↗
+                    </a>
+                  </div>
                 </div>
               </div>
-              <a
-                href="https://t.me/SentinelRiskAlerts"
-                target="_blank"
-                rel="noopener"
-                className="text-[11px] font-medium px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 hover:border-cyan-500/30 whitespace-nowrap transition-all self-start mt-4"
-              >
-                Join channel →
-              </a>
+              <div className="flex items-center gap-2 mt-4">
+                <a
+                  href="https://t.me/SentinelRiskAlerts"
+                  target="_blank"
+                  rel="noopener"
+                  className="text-[11px] font-medium px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 hover:border-cyan-500/30 whitespace-nowrap transition-all self-start"
+                >
+                  Join channel →
+                </a>
+              </div>
             </div>
           </div>
 
@@ -777,20 +923,20 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
           <div className="grid sm:grid-cols-3 gap-4">
             {[
               {
-                phase: 'SIMULATION LAYER',
+                phase: 'BEHAVIORAL LAYER',
                 phaseColor: 'text-yellow-400 border-yellow-500/20 bg-yellow-500/5',
-                icon: '🧪',
-                title: 'What-if engine',
-                desc: 'Sentinel simulates 6 rug scenarios before they happen. You see the exact loss scenario, not just a score.',
-                signal: 'price impact if LP pulled in next 10 min',
+                icon: '📉',
+                title: 'Phase detection',
+                desc: 'Distribution and collapse phases show up in buy/sell ratios and liquidity stress before price reacts. Sentinel classifies each token: Accumulation, Distribution, Manipulation, Collapse.',
+                signal: 'distribution phase detected — smart money exiting',
               },
               {
-                phase: 'CONSENSUS LAYER',
+                phase: 'DECISION LAYER',
                 phaseColor: 'text-cyan-400 border-cyan-500/20 bg-cyan-500/5',
                 icon: '🤖',
-                title: 'Multi-agent consensus',
-                desc: 'Five specialized agents vote independently. Risk, volume, sentiment, whales, creator history. One being wrong doesn\'t break the verdict.',
-                signal: 'coordinated wallets + low LP depth detected',
+                title: 'LLM policy engine',
+                desc: 'The agent doesn\'t just score — it decides what to do. Watch, rescan in 2 min, log quietly, broadcast to Telegram, or escalate. A calibrated heuristic fallback runs when the LLM is unavailable.',
+                signal: 'action: telegram_alert — confidence 84%',
               },
               {
                 phase: 'AUTONOMOUS LAYER',
@@ -836,7 +982,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
           </div>
           <div className="grid sm:grid-cols-2 gap-3">
             <a
-              href="https://github.com/loquit-doru/sentinel/blob/main/EVIDENCE.md"
+              href="https://github.com/loquit-doru/sentinel/blob/master/EVIDENCE.md"
               target="_blank"
               rel="noopener"
               className="p-5 rounded-xl border border-slate-800/60 bg-slate-900/40 hover:border-cyan-500/30 hover:bg-slate-900/60 hover:-translate-y-0.5 transition-all duration-300 group"
@@ -862,7 +1008,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
               <p className="text-xs text-slate-500 leading-relaxed">Public endpoint. Raw JSON: total requests, per-endpoint breakdown, today vs yesterday. No auth.</p>
             </a>
             <a
-              href="https://github.com/loquit-doru/sentinel/blob/main/worker/src/risk/engine.ts"
+              href="https://github.com/loquit-doru/sentinel/blob/master/worker/src/risk/engine.ts"
               target="_blank"
               rel="noopener"
               className="p-5 rounded-xl border border-slate-800/60 bg-slate-900/40 hover:border-cyan-500/30 hover:bg-slate-900/60 hover:-translate-y-0.5 transition-all duration-300 group"
@@ -875,7 +1021,20 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
               <p className="text-xs text-slate-500 leading-relaxed">8-signal weighted scoring + instant rug override. 102 unit tests. Pure TypeScript, no magic.</p>
             </a>
             <a
-              href="https://github.com/loquit-doru/sentinel/blob/main/worker/src/partner/bags-partner.ts"
+              href="https://github.com/loquit-doru/sentinel/blob/master/docs/telegram.md"
+              target="_blank"
+              rel="noopener"
+              className="p-5 rounded-xl border border-slate-800/60 bg-slate-900/40 hover:border-cyan-500/30 hover:bg-slate-900/60 hover:-translate-y-0.5 transition-all duration-300 group"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">📩</span>
+                <h3 className="font-semibold text-sm text-white group-hover:text-cyan-400 transition-colors">Telegram bot docs</h3>
+                <span className="text-[10px] text-slate-600 group-hover:text-cyan-500 ml-auto transition-colors">↗</span>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">Self-serve commands, creator alerts, webhook setup, and troubleshooting.</p>
+            </a>
+            <a
+              href="https://github.com/loquit-doru/sentinel/blob/master/worker/src/partner/bags-partner.ts"
               target="_blank"
               rel="noopener"
               className="p-5 rounded-xl border border-slate-800/60 bg-slate-900/40 hover:border-cyan-500/30 hover:bg-slate-900/60 hover:-translate-y-0.5 transition-all duration-300 group"
@@ -889,7 +1048,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
             </a>
           </div>
           <p className="text-center text-[11px] text-slate-700 mt-6 font-mono">
-            Reproduce scan: <span className="text-slate-500">npx tsx scripts/scan-top-tokens.ts</span> · Audit token: <span className="text-slate-500">curl /v1/risk/token/&lt;mint&gt;</span>
+            Reproduce scan: <span className="text-slate-500">npx tsx scripts/scan-top-tokens.ts</span> · Audit token: <span className="text-slate-500">curl /v1/risk/&lt;mint&gt;</span>
           </p>
         </div>
       </section>
@@ -898,9 +1057,9 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
       <div className="h-px w-full bg-gradient-to-r from-transparent via-slate-800 to-transparent" />
       <section className="px-6 py-20 text-center bg-slate-950/20">
         <div className="max-w-lg mx-auto space-y-6">
-          <h2 className="text-3xl font-bold text-white">Ready to trade smarter?</h2>
+          <h2 className="text-3xl font-bold text-white">The agent has been running since April.</h2>
           <p className="text-slate-400 text-sm">
-            Free to use. No sign-up. Connect your wallet only when you want to claim or stake.
+            Free to use. No sign-up. Connect your wallet only when you want to claim fees.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <button
@@ -926,7 +1085,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
         <div className="max-w-4xl mx-auto flex items-center justify-between text-[11px] text-gray-600">
           <div className="flex items-center gap-2">
             <SentinelLogo size={14} />
-            <span>Sentinel v0.14.0 — AI Risk Intelligence for Bags</span>
+            <span>Sentinel v0.14.0 — Autonomous risk monitoring for Bags</span>
           </div>
           <div className="flex items-center gap-3">
             <a href="https://github.com/loquit-doru/sentinel" target="_blank" rel="noopener" className="text-cyan-500/50 hover:text-cyan-400 transition-colors">GitHub ↗</a>

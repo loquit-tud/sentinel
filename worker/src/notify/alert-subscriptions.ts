@@ -10,7 +10,8 @@
  *  - `tg:notified:{chatId}:{mint}` — dedup flag (sent = don't re-send). TTL 48h.
  */
 
-import { sendTelegramMessage } from './telegram';
+import type { RiskAlert } from '../../../shared/types';
+import { sendTelegramMessage, buildLpDrainMessage, buildLpUnlockMessage } from './telegram';
 
 const SUB_TTL = 90 * 24 * 60 * 60;   // 90 days
 const NOTIF_DEDUP_TTL = 48 * 60 * 60; // 48 hours
@@ -116,8 +117,105 @@ export async function notifySubscribersOfCatch(
   const message = buildCatchMessage(catchPayload);
 
   for (const chatId of index) {
+    // Wallet filtering for catch payload is not supported yet (catch doesn't include creator wallet).
+    // If a subscription includes a wallet, we still send catch alerts (since they are high-signal)
+    // but wallet-filtering is handled for on-chain risk events (lp_drain/lp_unlock) below.
+
     // Dedup: don't send same mint to same chat within 48h
     const dedupKey = `tg:notified:${chatId}:${catchPayload.mint}`;
+    const alreadySent = await kv.get(dedupKey);
+    if (alreadySent) continue;
+
+    const sent = await sendTelegramMessage({ botToken, chatId, message });
+    if (sent) {
+      await kv.put(dedupKey, '1', { expirationTtl: NOTIF_DEDUP_TTL });
+    }
+  }
+}
+
+function normalizeWallet(w?: string | null): string | null {
+  const t = w?.trim();
+  return t && t.length > 0 ? t : null;
+}
+
+function buildAlertMessage(alert: RiskAlert): string | null {
+  if (alert.type === 'lp_drain') {
+    if (
+      alert.liquidityDropPct === undefined ||
+      alert.prevLiquidityUsd === undefined ||
+      alert.liquidityUsd === undefined
+    ) return null;
+
+    return buildLpDrainMessage(
+      alert.tokenSymbol,
+      alert.tokenName,
+      alert.mint,
+      alert.prevLiquidityUsd,
+      alert.liquidityUsd,
+      alert.liquidityDropPct,
+      alert.severity === 'critical' ? 'critical' : 'warning',
+      DASHBOARD_URL,
+      {
+        confirmed: alert.confirmed,
+        riskScore: alert.currentScore,
+        riskTier: alert.currentTier,
+        dataConfidence: alert.dataConfidence,
+        missingSignals: alert.missingSignals,
+        marketPubkey: alert.marketPubkey,
+        lpMint: alert.lpMint,
+        lpLockedPct: alert.lpLockedPct,
+        lpLockedUsd: alert.lpLockedUsd,
+      },
+    );
+  }
+
+  if (alert.type === 'lp_unlock') {
+    return buildLpUnlockMessage({
+      tokenSymbol: alert.tokenSymbol,
+      tokenName: alert.tokenName,
+      mint: alert.mint,
+      prevLpLockedScore: alert.previousScore ?? undefined,
+      lpLockedScore: alert.currentScore,
+      riskScore: alert.currentScore,
+      riskTier: alert.currentTier,
+      dataConfidence: alert.dataConfidence,
+      missingSignals: alert.missingSignals,
+      marketPubkey: alert.marketPubkey,
+      lpMint: alert.lpMint,
+      lpLockedPct: alert.lpLockedPct,
+      lpLockedUsd: alert.lpLockedUsd,
+      dashboardUrl: DASHBOARD_URL,
+    });
+  }
+
+  return null;
+}
+
+/**
+ * Notify Telegram subscribers of risk alerts.
+ * If a subscriber set `wallet`, only alerts where `alert.creatorWallet` matches are delivered.
+ */
+export async function notifySubscribersOfAlert(
+  kv: KVNamespace,
+  botToken: string,
+  alert: RiskAlert,
+): Promise<void> {
+  const index = ((await kv.get(INDEX_KEY, 'json')) as string[] | null) ?? [];
+  if (index.length === 0) return;
+
+  const message = buildAlertMessage(alert);
+  if (!message) return;
+
+  const creatorWallet = normalizeWallet(alert.creatorWallet);
+
+  for (const chatId of index) {
+    const sub = await getSubscription(kv, chatId);
+    const filterWallet = normalizeWallet(sub?.wallet);
+    if (filterWallet && (!creatorWallet || filterWallet !== creatorWallet)) {
+      continue;
+    }
+
+    const dedupKey = `tg:notified:alert:${chatId}:${alert.type}:${alert.mint}`;
     const alreadySent = await kv.get(dedupKey);
     if (alreadySent) continue;
 

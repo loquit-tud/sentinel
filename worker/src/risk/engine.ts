@@ -80,8 +80,19 @@ export async function computeRiskScore(
     };
   }
 
+  // Track which signals had missing data (imputed, not confirmed)
+  const missingSignals: string[] = [];
+  if (bird.liquidityMissing) missingSignals.push('liquidityDepth');
+  if (bird.volumeMissing) missingSignals.push('volumeHealth');
+
+  // Data confidence: fraction of total weight covered by real data
+  const missingWeight =
+    (bird.liquidityMissing ? RISK_WEIGHTS.liquidityDepth : 0) +
+    (bird.volumeMissing ? RISK_WEIGHTS.volumeHealth : 0);
+  const dataConfidence = Math.round((1 - missingWeight) * 100) / 100;
+
   // Weighted score calculation
-  const score = Math.round(
+  const rawScore = Math.round(
     breakdown.honeypot * RISK_WEIGHTS.honeypot +
     breakdown.lpLocked * RISK_WEIGHTS.lpLocked +
     breakdown.mintAuthority * RISK_WEIGHTS.mintAuthority +
@@ -91,6 +102,13 @@ export async function computeRiskScore(
     breakdown.volumeHealth * RISK_WEIGHTS.volumeHealth +
     breakdown.creatorReputation * RISK_WEIGHTS.creatorReputation
   );
+
+  // Tier ceiling when critical market data is missing:
+  //   both liq+vol missing → max 'caution' (cannot call it safe without market data)
+  //   one missing          → max 'caution' (uncertainty penalty)
+  const score = missingSignals.length > 0
+    ? Math.min(rawScore, 69)   // 69 = just below 'safe' threshold (70)
+    : rawScore;
 
   // Compute pump signal if Bags stats24h data is available
   let pumpSignal: RiskScore['pumpSignal'] = undefined;
@@ -126,5 +144,6 @@ export async function computeRiskScore(
     timestamp: Date.now(),
     cached: false,
     pumpSignal,
+    ...(missingSignals.length > 0 && { missingSignals, dataConfidence }),
   };
 }

@@ -35,17 +35,27 @@ export async function fetchBirdeyeOverview(
   }
 }
 
+// Imputed value used when Birdeye data is unavailable (not confirmed zero)
+const IMPUTED_MISSING = 45;
+
 export function analyzeBirdeye(
   security: BirdeyeTokenSecurity | null,
   overview: BirdeyeTokenOverview | null,
 ) {
   // Liquidity depth: normalize — $100K+ = 100, $0 = 0
+  // null overview = data unavailable → impute conservatively, NOT 0
+  const liquidityMissing = overview === null || overview.liquidity == null;
   const liquidity = overview?.liquidity ?? 0;
-  const liquidityDepth = Math.min((liquidity / 100_000) * 100, 100);
+  const liquidityDepth = liquidityMissing
+    ? IMPUTED_MISSING
+    : Math.min((liquidity / 100_000) * 100, 100);
 
   // Volume health: $10K+ daily = healthy
+  const volumeMissing = overview === null || overview.v24hUSD == null;
   const vol24h = overview?.v24hUSD ?? 0;
-  const volumeHealth = Math.min((vol24h / 10_000) * 100, 100);
+  const volumeHealth = volumeMissing
+    ? IMPUTED_MISSING
+    : Math.min((vol24h / 10_000) * 100, 100);
 
   // Top 10 holder concentration from Birdeye (fallback/complement to RugCheck)
   const top10Pct = (security?.top10HolderPercent ?? 0) * 100;
@@ -54,6 +64,8 @@ export function analyzeBirdeye(
   return {
     liquidityDepth,
     volumeHealth,
+    liquidityMissing,
+    volumeMissing,
     holderDistribution,
     price: overview?.price ?? 0,
     fdv: overview?.fdv ?? 0,

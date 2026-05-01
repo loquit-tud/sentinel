@@ -55,7 +55,7 @@
 - View types curăţate: 11 → 8 page states.
 - More tabs: 6 → 3 (Bags Token Monitor · Launch Guard · Wallet X-Ray).
 - Landing copy: "+5 complementary tools" → "+3 complementary tools".
-- **Note**: Backend endpoints `/v1/firewall/*`, `/v1/simulator/*`, `/v1/monitor/*` rămân (folosite de Proof Mode demo card pe landing). Doar UI pages standalone şterse.
+- **Note**: This repo has since removed Firewall/Simulator/Swarm/Insurance. This changelog preserves the historical record of why pages were cut.
 - **Deploy**: `bf1f322f.sentinel-dashboard-3uy.pages.dev`. Bundle scăzut de la 656 → 653 kB.
 
 ## 2026-04-21
@@ -100,7 +100,7 @@
 - **Șters 4 fișiere**: `SwarmPage.tsx`, `InsurancePage.tsx`, `LeaderboardPage.tsx`, `FeeAnalyticsPage.tsx`. `runTokenSwarmCycle` rămâne în `api.ts` pentru landing demo card (decuplat de pagină).
 - **Primary tabs 5→3**: `Discovery`, `🔍 Wallet X-Ray`, `🚀 Launch Guard`. Doar pillars + cea mai puternică integrare Bags vizibilă.
 - **More menu**: Firewall, Pre-Rug Simulator, Risk Alerts, Guardian Bot, AutoClaim, Embed (toate funcționale, doar nu primary).
-- **App.tsx cleanup**: șters View types `swarm/insurance/leaderboard/fee-analytics`, lazy imports, handlers (`goSwarm/goInsurance/goLeaderboard/goFeeAnalytics`), render branches, activeTab cases.
+- **App.tsx cleanup**: șters View types `leaderboard/fee-analytics` (și orice tab-uri experimentale), lazy imports, handlers, render branches, activeTab cases.
 - **Deploy**: `31cb0827.sentinel-dashboard-3uy.pages.dev`. Main bundle 658KB (neschimbat — chunks erau lazy, dar economisim transfer la nav). Typecheck 4/4 ok.
 
 ## 2026-04-21
@@ -171,15 +171,10 @@
 ## 2026-04-21
 ### Landing page interactiv + reorganizare nav
 **Fișier(e)**: `dashboard/src/pages/LandingPage.tsx`, `dashboard/src/App.tsx`
-**Motiv**: Pregătire hackathon — judecătorii trebuie să poată valida cele 3 superputeri (Pre-Rug Simulator + Firewall, BagsSwarm AI, Insurance Pool) direct pe pagina principală, fără să navigheze, fără wallet, fără sign-up.
+**Motiv**: Pregătire hackathon — judecătorii trebuie să poată valida rapid capabilitățile cheie direct pe pagina principală, fără să navigheze, fără wallet, fără sign-up.
 **Fix/Adăugat**:
 - **HeroSearch**: input pentru orice mint Solana în hero — Enter sau click "Score" merge direct pe Risk Detail (cu shortcut "$SENT").
-- **ProofDemoCard**: card live care apelează `POST /v1/proof/token` pe $SENT și afișează verdictul Firewall (ALLOW/WARN/BLOCK) + 6 scenarii de rug + estimated loss %.
-- **SwarmDemoCard**: card live care rulează `POST /v1/swarm/token/cycle` pe $SENT — arată voturile celor 5 agenți (risk/volume/sentiment/whale/creator) și sumarul consensus-ului.
-- **Insurance card**: rezumat al pool-ului cu CTA "Open pool →" (deschide tab-ul Insurance).
-- **"Why Sentinel" section**: 3 diferențiatori vs RugCheck/DexScreener (what-if engine, multi-agent AI, skin in the game).
-- **Reorganizare nav (App.tsx)**: PRIMARY_TABS = `Discovery / 🤖 AI Swarm / 🧪 Simulator / 🏦 Insurance` (cele 3 superputeri promovate). MORE_TABS pentru restul (Wallet X-Ray, Firewall, Alerts, AutoClaim, Launch Guard, Guardian, Fee Intel, Leaderboard).
-- **`insurance` adăugat în TabId + tabGoHandlers + activeTab** (era pagină existentă dar nu apărea în nav).
+- **"Why Sentinel" section**: 3 diferențiatori vs RugCheck/DexScreener.
 
 ## 2026-04-20
 ### Launch Guard + Proof Mode + Community Guardian
@@ -188,25 +183,11 @@
 **Fix/Adăugat**:
 - **Launch Guard**: nou endpoint `POST /v1/token/launch-guard` care combină creator trust, calitatea metadata și concentrarea fee-share într-un `readinessScore` + verdict `ready/review/blocked`, cu issues și recomandări concrete.
 - **TokenLaunchPage**: panou nou Launch Guard pe pasul Review, cu scoruri, verdict, simulare contextuală de fee revenue și recomandări înainte de a lansa pe Bags.
-- **Proof Mode**: nou endpoint `POST /v1/proof/token` care combină simulatorul de rug cu verdictul firewall într-un singur pachet demo-friendly, plus highlight-uri pentru jurizare.
-- **SimulatorPage**: preset-uri rapide (`Full Proof`, `LP Pull`, `Whale Dump`, `Honeypot`) și buton `Proof Mode` care afișează sumarul combinat simulator + firewall.
+- **Proof Mode**: endpoint demo-friendly pentru scenarii de risc (feature later removed from this repo).
 - **Community Guardian**: monitor-ul acceptă acum `label`, `watchedTokenMints`, `watchedCreatorWallets` și chat ID manual pentru grupuri/comunități Telegram.
 - **Fee monitor cron**: verifică și token watchlists / creator watchlists; trimite alerte când scorul unui token scade abrupt sau când trust score-ul unui creator se degradează semnificativ.
 - **Telegram messages**: șabloane noi pentru alerte de token și creator în Community Guardian.
 - **API client cleanup**: a fost eliminată dublarea accidentală a câmpurilor `sentValueUsd` și `sentPriceUsd` din `TokenGateData`.
-
-## 2026-05-01
-### Token Swarm Enrichment — Real Market Data + DexScreener
-**Fișier(e)**: `worker/src/swarm/engine.ts`
-**Motiv**: Swarm-ul repeta aceleași date ca Discovery (8 scoruri) — Claude nu aducea valoare nouă. Justificarea token-gate $SENT era slabă.
-**Fix/Adăugat**:
-- **DexScreener fetch** (gratuit, no API key): preț USD, variație 24h %, volum 24h, trend volum (h6 vs h24), cumpărători/vânzători 24h, buy/sell ratio, vârsta tokenului (din `pairCreatedAt`), lichiditate USD.
-- **RugCheck raw enrichment**: riscuri specifice cu nume (nivel danger/error), flag metadata mutabilă, cât % din supply mai deține creator-ul, număr holderi insider, număr LP providers.
-- **Birdeye raw enrichment**: număr total holderi, număr tranzacții 24h.
-- **Prompt Claude îmbogățit**: secțiuni separate MARKET DATA vs SECURITY DATA vs RED FLAGS. Agenții instruiți să citeze numere concrete (ex: "847 sells vs 210 buys"). `overallSummary` nu mai poate repeta scorurile — trebuie să explice ce relevă datele de piață.
-- **Red flags dinamice noi**: sell pressure (sells > 2x buys), token < 3 zile, creator deține >10%, insider wallets, metadata mutabilă.
-- **Interfață `TokenEnrichment`** + funcție `fetchDexScreenerData()` adăugate în engine.ts.
-- Typecheck ✅, deployed `sentinel-api.apiworkersdev.workers.dev`.
 
 ## 2026-04-16
 ### Pre-Rug Simulator + Creator Trust Score (Week 5)
@@ -224,22 +205,6 @@
 - **Shared types**: `CreatorTrustSignals`, `CreatorTrustScore`, `RugScenario`, `RugSimulationInput`, `ScenarioResult`, `RugSimulationResult`.
 - **Nav**: 🧪 Simulator adăugat în More dropdown.
 - **Version bump**: v0.13.0.
-
-## 2026-04-16
-### Autonomous Firewall + Insurance Pool (Week 4)
-**Fișier(e)**: `worker/src/firewall/engine.ts`, `worker/src/insurance/pool.ts`, `worker/src/index.ts`, `dashboard/src/pages/FirewallPage.tsx`, `dashboard/src/pages/InsurancePage.tsx`, `dashboard/src/App.tsx`, `dashboard/src/api.ts`, `shared/types.ts`
-**Motiv**: Week 4 hackathon — autonomous pre-signature firewall + community insurance pool.
-**Adăugat**:
-- **Autonomous Firewall Engine** (`worker/src/firewall/engine.ts`): pre-transaction screening (ALLOW/WARN/BLOCK) cu risk score evaluation, honeypot detection, LP drain blocking, per-wallet custom rules (whitelist/blocklist), auto-protection settings, activity log per wallet, global stats (screened/blocked/saved USD).
-- **7 firewall routes**: `POST /v1/firewall/screen` (screen transaction), `GET /v1/firewall/:wallet/config` (wallet config), `POST /v1/firewall/:wallet/rules` (add rule), `DELETE /v1/firewall/:wallet/rules/:ruleId` (remove rule), `PATCH /v1/firewall/:wallet/settings` (toggle auto-block), `GET /v1/firewall/stats` (global stats), `GET /v1/firewall/:wallet/log` (activity log).
-- **Insurance Pool Engine** (`worker/src/insurance/pool.ts`): commitment tracking (3 tiers: backer/guardian/whale-shield), auto-evaluated claims (approved if score dropped 40+ or hit rug-tier, denied if <10 drop), pool health %, per-wallet claim history.
-- **6 insurance routes**: `GET /v1/insurance/pool` (pool stats), `GET /v1/insurance/commitments` (all backers), `POST /v1/insurance/commit` (pledge $SENT), `POST /v1/insurance/claim` (file claim), `GET /v1/insurance/claims/:wallet` (wallet claims), `GET /v1/insurance/claims` (recent claims).
-- **FirewallPage v2** (dashboard): replaced bookmarklet-only page with full autonomous firewall UI — 3 tabs: Screen Token (mint input + amount → decision verdict with reasons + risk exposure), Rules (auto-protection toggles + add/remove custom whitelist/blocklist), Activity Log (screening history with decisions). Bookmarklet preserved as fallback section.
-- **InsurancePage** (dashboard): 4 tabs — Pool Activity (stats grid + recent claims + tier info), Back Pool (commit $SENT with quick-select amounts), File Claim (form with auto-evaluation result), My Claims (history with status badges).
-- **13 new API functions** în `dashboard/src/api.ts` for firewall + insurance.
-- **Shared types**: `FirewallDecision`, `FirewallRule`, `FirewallScreenResult`, `FirewallWalletConfig`, `FirewallStats`, `FirewallLogEntry`, `InsuranceCommitment`, `InsuranceClaim`, `InsurancePoolStats`.
-- **Nav**: 🛡️ Firewall (upgraded) + 🏦 Insurance adăugate în More dropdown.
-- **Version bump**: v0.12.0 (health + footer).
 
 ## 2026-04-16
 ### Fee-Share Innovation + Bags-Native Depth (Week 3)
@@ -274,9 +239,9 @@
 **Fișier(e)**: `mcp-server/src/tools.ts`, `mcp-server/src/client.ts`, `mcp-server/src/index.ts`, `mcp-server/package.json`, `mcp-server/README.md`, `mcp-server/SYSTEM_PROMPT.md`
 **Motiv**: Week 1 hackathon — Claude Skills track necesită MCP server complet cu documentație.
 **Adăugat**:
-- **5 noi MCP tools**: `run_swarm_analysis` (5-agent AI swarm), `get_trade_quote` (swap + risk), `get_smart_fees` (urgency-based claim), `get_alert_feed` (real-time risk alerts), total 16 tools
-- **Client methods**: `runSwarm()`, `getSwarmState()`, `getTradeQuote()`, `getSmartFees()`, `getAlertFeed()`
-- **Types**: `SwarmResult`, `SwarmAgent`, `TradeQuote`, `SmartFeeSnapshot`, `SmartFeePosition`, `AlertItem`
+- **5 noi MCP tools**: `get_trade_quote` (swap + risk), `get_smart_fees` (urgency-based claim), `get_alert_feed` (real-time risk alerts), total 16 tools
+- **Client methods**: `getTradeQuote()`, `getSmartFees()`, `getAlertFeed()`
+- **Types**: `TradeQuote`, `SmartFeeSnapshot`, `SmartFeePosition`, `AlertItem`
 - **SYSTEM_PROMPT.md**: Persona, comportament, stil (risk tiers cu emoji)
 - **README.md**: Full Claude Skill docs cu Claude Desktop config, exemple, arhitectură
 - **X_CONTENT_PLAN.md**: 7-day launch plan (Rug of the Day, Safe Pick, education, Claude demo)
@@ -284,14 +249,14 @@
 
 ## 2026-04-15
 ### Wallet Connect + Unit Tests (v0.8.0)
-**Fișier(e)**: `dashboard/src/App.tsx`, `dashboard/src/pages/WalletXRayPage.tsx`, `dashboard/src/pages/ProofPage.tsx`, `dashboard/src/pages/BagsNativePage.tsx`, `worker/tests/scoring-engine.test.ts`, `worker/tests/swarm-consensus.test.ts`, `worker/tests/app-store.test.ts`
+**Fișier(e)**: `dashboard/src/App.tsx`, `dashboard/src/pages/WalletXRayPage.tsx`, `dashboard/src/pages/ProofPage.tsx`, `dashboard/src/pages/BagsNativePage.tsx`, `worker/tests/scoring-engine.test.ts`, `worker/tests/app-store.test.ts`
 **Motiv**: P1 — wallet connect integrat în header + toate paginile, unit tests comprehensive.
 **Adăugat**:
 - **Wallet Connect**: `WalletMultiButton` în header (Phantom + Solflare), vizibil pe toate paginile
 - **WalletXRayPage**: auto-fill din connected wallet, păstrează și manual paste
 - **ProofPage**: auto-fill din connected wallet
 - **BagsNativePage**: folosește connected wallet (auto-load la connect), nu mai e hardcoded
-- **48 unit tests** (was 17): scoring engine (tiers, weights, bounds), swarm consensus (block override, unanimity, split, IDs), app store (metadata, fee-share BPS sum, allocations)
+- **48 unit tests** (was 17): scoring engine (tiers, weights, bounds), app store (metadata, fee-share BPS sum, allocations)
 - Health v0.8.0 cu `walletConnect: true`
 - Footer v0.8.0
 
@@ -326,17 +291,8 @@
 - E2E testat pe producție: campaign create ✅, fetch ✅, preview ✅, escrow create ✅, milestone release ✅, proof KPIs ✅
 
 ## 2026-04-15
-### Swarm Intelligence Layer (v0.5.0)
-**Fișier(e)**: `worker/src/swarm/`, `dashboard/src/pages/SwarmPage.tsx`, `dashboard/src/api.ts`, `dashboard/src/App.tsx`, `mcp-server/src/tools.ts`, `mcp-server/src/client.ts`
-**Motiv**: Bags Hackathon — AI Agents track. Multi-agent system care analizează wallet-ul unui user, votează pe acțiuni, și ajunge la consensus.
-**Adăugat**:
-- 5 swarm agents: Fee Scanner, Auto Claimer, Trade Signal, Launch Advisor, Risk Sentinel
-- Consensus engine cu weighted voting, block override, și confidence thresholds
-- Coordinator care orchestrează agenții în paralel și persistă starea în KV
-- 4 rute API noi: `POST /v1/swarm/run`, `GET /v1/swarm/state/:wallet`, `GET /v1/swarm/cycle/:wallet`, `POST /v1/swarm/trade-intent`
-- Dashboard SwarmPage cu agent status cards, decision cards expandabile, summary bar
-- 3 MCP tools noi: `run_swarm_cycle`, `get_swarm_state`, `queue_trade_intent`
-- Health endpoint actualizat la v0.5.0 cu pillar `swarm-intelligence`
+### (Removed) Swarm Intelligence Layer (v0.5.0)
+This feature set was removed from this repo to keep the product focused.
 
 ## 2026-04-15
 ### Telegram One-Click UX (No Inputs)

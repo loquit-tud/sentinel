@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.4",
-    "hono": "^4.7.0"
+    "bs58": "^6.0.0",
+    "hono": "^4.7.0",
+    "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250410.0",

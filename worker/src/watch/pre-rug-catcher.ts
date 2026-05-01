@@ -25,6 +25,7 @@
 import type { TokenFeedItem, RiskScore, RiskTier, RiskBreakdown, TokenPhase, TokenTrend, AgentPolicyDecision, AgentPolicyInput } from '../../../shared/types';
 import { fetchTopTokens } from '../feed/bags';
 import { computeAgentPolicy } from '../agent/policy';
+import { recordCatchEvidence, backfillMissingCatchEvidence } from './catch-evidence';
 
 export interface WatchSnapshot {
   mint: string;
@@ -262,6 +263,16 @@ export async function runPreRugWatch(env: WatchEnv): Promise<number> {
   // or drop < TIER_CRASH_MIN_DROP). This removes calibration noise from earlier runs.
   await purgeLowQualityCatches(kv);
 
+  // Best-effort: backfill immutable evidence bundles for historical catches (bounded per cron tick).
+  try {
+    const idx = (await kv.get(INDEX_KEY, 'json')) as PreRugCatch[] | null;
+    if (idx && idx.length > 0) {
+      await backfillMissingCatchEvidence(kv, idx, 3);
+    }
+  } catch {
+    // ignore
+  }
+
   const tokens = await fetchTopTokens(env.BAGS_API_KEY);
   const batch = tokens.slice(0, 100);
   let newCatches = 0;
@@ -303,6 +314,15 @@ export async function runPreRugWatch(env: WatchEnv): Promise<number> {
             // 'telegram_alert' | 'escalate': save + broadcast
             if (decision.action !== 'monitor') {
               await kv.put(`watch:catch:${token.mint}`, JSON.stringify(caught), { expirationTtl: CATCH_TTL });
+              // Immutable judge-proof evidence bundle (KV, no TTL) — includes baseline snapshot + risk score at catch + RugCheck snapshot.
+              if (decision.action !== 'log_alert') {
+                await recordCatchEvidence({
+                  kv,
+                  caught,
+                  baseline: prev,
+                  riskAtCatch: riskCached,
+                }).catch(() => {});
+              }
               if (decision.action !== 'log_alert') {
                 await addToIndex(kv, caught);
                 newCatches++;

@@ -15,6 +15,7 @@ import { tierFromScore } from '../../../shared/types';
 import { fetchTopTokens } from '../feed/bags';
 import { computeRiskScore } from '../risk/engine';
 import { fetchRugCheckReport, analyzeRugCheck } from '../risk/rugcheck';
+import { fetchBirdeyeOverview } from '../risk/birdeye';
 
 const ALERT_KV_PREFIX = 'alert:';
 const SCORE_KV_PREFIX = 'score:prev:';
@@ -34,6 +35,10 @@ const LP_DRAIN_CRITICAL_PCT = 20; // ≥20% drop → CRITICAL
 const LP_DRAIN_WARNING_PCT = 10;  // ≥10% drop → WARNING
 // Minimum liquidity to track (ignore micro-pools)
 const LP_DRAIN_MIN_USD = 500;
+// Source health gate: if ≥35% tokens return null/zero liquidity in same cycle → likely API outage
+const SOURCE_HEALTH_OUTAGE_THRESHOLD = 0.35;
+// Zero-shock guard: prev liquidity above this + current exactly 0 → require Birdeye confirmation
+const ZERO_SHOCK_MIN_PREV_USD = 5_000;
 
 interface PreviousScore {
   score: number;
@@ -52,6 +57,41 @@ interface ScanMeta {
   alertsGenerated: number;
 }
 
+function pickPrimaryRugcheckMarket(report: Awaited<ReturnType<typeof fetchRugCheckReport>>): {
+  marketPubkey: string;
+  lpMint: string;
+  lpLockedPct: number;
+  lpLockedUsd: number;
+} | null {
+  const markets = report?.markets ?? null;
+  if (!markets || markets.length === 0) return null;
+
+  // Prefer the pool with the highest locked USD (best proxy for "main" pool).
+  // Fallback to highest total USD (baseUSD+quoteUSD) if locked USD missing.
+  const ranked = markets
+    .filter((m) => Boolean(m?.pubkey) && Boolean(m?.mintLP) && Boolean(m?.lp))
+    .map((m) => ({
+      marketPubkey: m.pubkey,
+      lpMint: m.mintLP,
+      lpLockedPct: m.lp?.lpLockedPct ?? 0,
+      lpLockedUsd: m.lp?.lpLockedUSD ?? 0,
+      totalUsd: (m.lp?.baseUSD ?? 0) + (m.lp?.quoteUSD ?? 0),
+    }))
+    .sort((a, b) => {
+      if (b.lpLockedUsd !== a.lpLockedUsd) return b.lpLockedUsd - a.lpLockedUsd;
+      return b.totalUsd - a.totalUsd;
+    });
+
+  if (ranked.length === 0) return null;
+  const top = ranked[0];
+  return {
+    marketPubkey: top.marketPubkey,
+    lpMint: top.lpMint,
+    lpLockedPct: top.lpLockedPct,
+    lpLockedUsd: top.lpLockedUsd,
+  };
+}
+
 /**
  * Run a full scan: fetch top tokens, score them, compare to previous, emit alerts.
  * Returns the new alerts generated in this run.
@@ -62,10 +102,21 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
 
   // 1. Get top tokens from Bags
   const tokens = await fetchTopTokens(env.BAGS_API_KEY);
-  const batch = tokens.slice(0, MAX_SCAN_BATCH);
+  // Deduplicate by mint before slicing — prevents the same token appearing twice
+  // in the feed (which would cause prev-state to be overwritten mid-cycle, creating
+  // phantom prev values on the second occurrence).
+  const seenMints = new Set<string>();
+  const dedupedTokens = tokens.filter((t) => {
+    if (seenMints.has(t.mint)) return false;
+    seenMints.add(t.mint);
+    return true;
+  });
+  const batch = dedupedTokens.slice(0, MAX_SCAN_BATCH);
   if (batch.length === 0) return [];
 
   const newAlerts: RiskAlert[] = [];
+  // Source health tracking: count tokens with null/zero/invalid liquidity data this cycle
+  let nullLiquidityTokens = 0;
 
   // 2. Score each token and compare to previous
   const scoringResults = await Promise.allSettled(
@@ -84,6 +135,7 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
         // Get RugCheck for creator + LP details
         const rugReport = await fetchRugCheckReport(token.mint);
         const creatorWallet = rugReport?.creator ?? null;
+        const primaryMarket = pickPrimaryRugcheckMarket(rugReport);
 
         // --- Generate alerts ---
 
@@ -147,13 +199,33 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
             currentTier: current.tier,
             timestamp: Date.now(),
             creatorWallet,
+            dataConfidence: current.dataConfidence,
+            missingSignals: current.missingSignals,
+            marketPubkey: primaryMarket?.marketPubkey,
+            lpMint: primaryMarket?.lpMint,
+            lpLockedPct: primaryMarket?.lpLockedPct,
+            lpLockedUsd: primaryMarket?.lpLockedUsd,
           });
         }
 
-        // LP drain detection — tracks actual USD liquidity draining in real-time
-        // Requires 2 consecutive scans showing drain before firing CRITICAL (debounce API noise)
-        const currentLiquidityUsd = rugReport?.totalMarketLiquidity ?? 0;
+        // LP drain detection — 3-layer false positive suppression
+        //
+        // Layer 1: Null/Zero shock filter
+        //   API outages return null or 0 for ALL tokens simultaneously.
+        //   Never treat missing data as a confirmed economic state change.
+        const rawLiquidityReport = rugReport?.totalMarketLiquidity;
+        const liquidityDataValid = rugReport !== null && rawLiquidityReport != null;
+        const currentLiquidityUsd = liquidityDataValid ? rawLiquidityReport! : 0;
+
+        // Track invalid data for source health scoring (used after the loop)
+        if (!liquidityDataValid || (currentLiquidityUsd === 0 && (prev?.liquidityUsd ?? 0) >= ZERO_SHOCK_MIN_PREV_USD)) {
+          nullLiquidityTokens++;
+        }
+
+        // Layer 2: Only run drain detection if data is structurally valid AND non-zero
         if (
+          liquidityDataValid &&
+          currentLiquidityUsd > 0 &&
           prev &&
           prev.liquidityUsd >= LP_DRAIN_MIN_USD &&
           currentLiquidityUsd < prev.liquidityUsd
@@ -162,27 +234,63 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
           const confirmCount = (prev.lpDrainConfirmCount ?? 0) + 1;
 
           if (dropPct >= LP_DRAIN_CRITICAL_PCT) {
-            if (confirmCount >= 2) {
-              // Confirmed over 2+ scans — real drain
-              newAlerts.push({
-                id: `drain_${token.mint}_${Date.now()}`,
-                mint: token.mint,
-                tokenName: token.name,
-                tokenSymbol: token.symbol,
-                type: 'lp_drain',
-                severity: 'critical',
-                title: `🚨 ${token.symbol} LP DRAINING — -${dropPct.toFixed(1)}% liquidity`,
-                description: `Liquidity dropped from $${prev.liquidityUsd.toLocaleString()} to $${currentLiquidityUsd.toLocaleString()} (-${dropPct.toFixed(1)}%) since last scan. Possible rug in progress — exit window closing.`,
-                previousScore: prev.score,
-                currentScore: current.score,
-                previousTier: prev.tier,
-                currentTier: current.tier,
-                timestamp: Date.now(),
-                creatorWallet,
-                liquidityUsd: currentLiquidityUsd,
-                prevLiquidityUsd: prev.liquidityUsd,
-                liquidityDropPct: dropPct,
-              });
+            // Escalate to CRITICAL on first scan if drop is catastrophic (≥50%).
+            // No reason to wait 2 cycles when 75%+ of liquidity is already gone.
+            const isCatastrophic = dropPct >= 50;
+            if (confirmCount >= 2 || isCatastrophic) {
+              // Layer 3: Birdeye cross-validation for zero-shock CRITICAL alerts.
+              // If prev liquidity was large and current is suspiciously low, verify with Birdeye.
+              const isZeroShock = currentLiquidityUsd === 0 && prev.liquidityUsd >= ZERO_SHOCK_MIN_PREV_USD;
+              let birdeyeConfirmed = true;
+              // Also cross-validate large non-zero drops (>=40%) to reduce false positives from noisy liquidity sources.
+              const needsCrossValidation = isZeroShock || dropPct >= 40;
+              if (needsCrossValidation && env.BIRDEYE_API_KEY) {
+                const birdeyeOverview = await fetchBirdeyeOverview(token.mint, env.BIRDEYE_API_KEY).catch(() => null);
+                const birdeyeLiq = birdeyeOverview?.liquidity ?? null;
+                // If Birdeye reports normal liquidity (≥50% of prev), Bags data is wrong
+                if (birdeyeLiq != null && birdeyeLiq > prev.liquidityUsd * 0.5) {
+                  birdeyeConfirmed = false;
+                  nullLiquidityTokens++;
+                  console.warn(`[Sentinel] LP drain SUPPRESSED for ${token.symbol}: Bags=$0 but Birdeye=$${birdeyeLiq.toLocaleString()} — treating as API noise`);
+                }
+              }
+
+              if (birdeyeConfirmed) {
+                const dataConfidence = current.dataConfidence ?? 1;
+                const missing = current.missingSignals ?? [];
+                const hasMissingMarketData = missing.includes('liquidityDepth') || missing.includes('volumeHealth');
+                const downgradeForPartialData = dataConfidence < 0.9 || hasMissingMarketData;
+                const severity: AlertSeverity = downgradeForPartialData ? 'warning' : 'critical';
+                const suffix = downgradeForPartialData ? ' (partial data)' : '';
+
+                // Confirmed over 2+ scans with valid data — real drain
+                newAlerts.push({
+                  id: `drain_${token.mint}_${Date.now()}`,
+                  mint: token.mint,
+                  tokenName: token.name,
+                  tokenSymbol: token.symbol,
+                  type: 'lp_drain',
+                  severity,
+                  title: `${severity === 'critical' ? '🚨' : '⚠️'} ${token.symbol} LP drain detected — -${dropPct.toFixed(1)}% liquidity${suffix}`,
+                  description: `Liquidity dropped from $${prev.liquidityUsd.toLocaleString()} to $${currentLiquidityUsd.toLocaleString()} (-${dropPct.toFixed(1)}%) since last scan.${downgradeForPartialData ? ' Some market signals were missing; treat as high-risk but verify before acting.' : ' Possible rug in progress — exit window closing.'}`,
+                  previousScore: prev.score,
+                  currentScore: current.score,
+                  previousTier: prev.tier,
+                  currentTier: current.tier,
+                  timestamp: Date.now(),
+                  creatorWallet,
+                  liquidityUsd: currentLiquidityUsd,
+                  prevLiquidityUsd: prev.liquidityUsd,
+                  liquidityDropPct: dropPct,
+                  confirmed: true,
+                  dataConfidence: current.dataConfidence,
+                  missingSignals: current.missingSignals,
+                  marketPubkey: primaryMarket?.marketPubkey,
+                  lpMint: primaryMarket?.lpMint,
+                  lpLockedPct: primaryMarket?.lpLockedPct,
+                  lpLockedUsd: primaryMarket?.lpLockedUsd,
+                });
+              }
             } else {
               // First detection — fire WARNING only (possible API noise)
               newAlerts.push({
@@ -203,6 +311,13 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
                 liquidityUsd: currentLiquidityUsd,
                 prevLiquidityUsd: prev.liquidityUsd,
                 liquidityDropPct: dropPct,
+                confirmed: false,
+                dataConfidence: current.dataConfidence,
+                missingSignals: current.missingSignals,
+                marketPubkey: primaryMarket?.marketPubkey,
+                lpMint: primaryMarket?.lpMint,
+                lpLockedPct: primaryMarket?.lpLockedPct,
+                lpLockedUsd: primaryMarket?.lpLockedUsd,
               });
             }
           } else if (dropPct >= LP_DRAIN_WARNING_PCT) {
@@ -224,6 +339,13 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
               liquidityUsd: currentLiquidityUsd,
               prevLiquidityUsd: prev.liquidityUsd,
               liquidityDropPct: dropPct,
+              confirmed: false,
+              dataConfidence: current.dataConfidence,
+              missingSignals: current.missingSignals,
+              marketPubkey: primaryMarket?.marketPubkey,
+              lpMint: primaryMarket?.lpMint,
+              lpLockedPct: primaryMarket?.lpLockedPct,
+              lpLockedUsd: primaryMarket?.lpLockedUsd,
             });
           }
         }
@@ -275,15 +397,17 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
         }
 
         // Save current score as "previous" for next scan
-        // Note: only update liquidityUsd if we got real data (> 0) to avoid storing API noise
-        const realLiquidityUsd = (rugReport?.totalMarketLiquidity ?? 0) > 0
-          ? rugReport!.totalMarketLiquidity
+        // Note: only update liquidityUsd if we got valid data to avoid storing API noise.
+        // Preserves last known good value when current data is invalid/null.
+        const realLiquidityUsd = liquidityDataValid && currentLiquidityUsd > 0
+          ? currentLiquidityUsd
           : (prev?.liquidityUsd ?? 0);
 
-        // Compute drain confirm count: increment if draining, reset if recovered
-        const currentLiquidity = rugReport?.totalMarketLiquidity ?? 0;
-        const isDraining = prev && prev.liquidityUsd >= LP_DRAIN_MIN_USD && currentLiquidity < prev.liquidityUsd &&
-          ((prev.liquidityUsd - currentLiquidity) / prev.liquidityUsd) * 100 >= LP_DRAIN_CRITICAL_PCT;
+        // Drain confirm count: only increment for valid, non-zero data confirming the drain.
+        // Invalid data (null/zero shock) resets the counter to 0 to prevent outage amplification.
+        const isDraining = liquidityDataValid && currentLiquidityUsd > 0 &&
+          prev != null && prev.liquidityUsd >= LP_DRAIN_MIN_USD && currentLiquidityUsd < prev.liquidityUsd &&
+          ((prev.liquidityUsd - currentLiquidityUsd) / prev.liquidityUsd) * 100 >= LP_DRAIN_CRITICAL_PCT;
         const lpDrainConfirmCount = isDraining ? (prev?.lpDrainConfirmCount ?? 0) + 1 : 0;
 
         const newPrev: PreviousScore = {
@@ -318,6 +442,24 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
       }
     }),
   );
+
+  // Source health gate: if ≥35% of tokens returned null/zero liquidity in this cycle,
+  // it's almost certainly a Bags API outage, not real rugs.
+  // Suppress LP drain alerts for the entire cycle to avoid mass false positives.
+  const sourceHealthScore = 1 - (nullLiquidityTokens / Math.max(batch.length, 1));
+  if (sourceHealthScore < (1 - SOURCE_HEALTH_OUTAGE_THRESHOLD)) {
+    const drainCount = newAlerts.filter((a) => a.type === 'lp_drain').length;
+    if (drainCount > 0) {
+      console.warn(
+        `[Sentinel] Source health gate: ${nullLiquidityTokens}/${batch.length} tokens with ` +
+        `invalid liquidity data (health=${(sourceHealthScore * 100).toFixed(0)}%) — ` +
+        `suppressing ${drainCount} LP drain alert(s) as suspected API outage`,
+      );
+      const filtered = newAlerts.filter((a) => a.type !== 'lp_drain');
+      newAlerts.length = 0;
+      newAlerts.push(...filtered);
+    }
+  }
 
   // 3. Merge new alerts into existing feed (rolling window)
   const existingRaw = await kv.get(FEED_KEY, 'json');

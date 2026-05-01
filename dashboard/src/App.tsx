@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import bs58 from 'bs58';
 import type { TokenFeedItem } from '../../shared/types';
 import { SearchBar } from './components/SearchBar';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -8,7 +9,7 @@ import { FeedPage } from './pages/FeedPage';
 import { RiskDetailPage } from './pages/RiskDetailPage';
 import { LandingPage } from './pages/LandingPage';
 import { ClaimPage } from './pages/ClaimPage';
-import { fetchTokenFeed } from './api';
+import { authChallenge, authVerify, fetchTokenFeed, getSessionToken, getSessionWallet, setSessionToken, setSessionWallet } from './api';
 
 // Lazy-loaded heavy/secondary pages — split out of main bundle
 const WalletXRayPage     = lazy(() => import('./pages/WalletXRayPage').then(m => ({ default: m.WalletXRayPage })));
@@ -82,8 +83,11 @@ function PageLoader() {
 }
 
 export function App() {
-  const { publicKey } = useWallet();
+  const { publicKey, signMessage, connected } = useWallet();
   const connectedWallet = publicKey?.toBase58() ?? null;
+  const [authStatus, setAuthStatus] = useState<'idle' | 'authing' | 'authed' | 'unsupported' | 'error'>('idle');
+  const [authAttempt, setAuthAttempt] = useState(0);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const [view, setView] = useState<View>(() => {
     const params = new URLSearchParams(window.location.search);
@@ -96,6 +100,72 @@ export function App() {
   const [tokens, setTokens] = useState<TokenFeedItem[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
   const [feedError, setFeedError] = useState(false);
+
+  // Wallet auth: real Ed25519 signature session (worker verifies)
+  useEffect(() => {
+    if (!connected || !connectedWallet) {
+      setAuthStatus('idle');
+      // Important: do NOT clear session on transient disconnect during refresh.
+      // Wallet-adapter often initializes with connected=false before rehydration.
+      setAuthError(null);
+      return;
+    }
+
+    // If wallet can't sign messages, we still function, but without verified session.
+    if (!signMessage) {
+      setAuthStatus('unsupported');
+      setSessionToken(null);
+      setSessionWallet(null);
+      setAuthError('Wallet does not support message signing (signMessage unavailable).');
+      return;
+    }
+
+    // If we already have a session token for THIS wallet, keep it.
+    const existing = getSessionToken();
+    const existingWallet = getSessionWallet();
+    if (existing && existingWallet === connectedWallet) {
+      setAuthStatus('authed');
+      setAuthError(null);
+      return;
+    }
+    // Token exists but wallet changed (or wallet not stored) → re-auth.
+    if (existing && existingWallet && existingWallet !== connectedWallet) {
+      setSessionToken(null);
+      setSessionWallet(null);
+    }
+
+    let cancelled = false;
+    setAuthStatus('authing');
+    setAuthError(null);
+
+    (async () => {
+      try {
+        const ch = await authChallenge(connectedWallet);
+        const sig = await signMessage(new TextEncoder().encode(ch.message));
+        const verified = await authVerify({
+          challengeId: ch.challengeId,
+          wallet: connectedWallet,
+          signature: bs58.encode(sig),
+        });
+        if (cancelled) return;
+        setSessionToken(verified.sessionToken);
+        setSessionWallet(verified.wallet);
+        setAuthStatus('authed');
+        setAuthError(null);
+      } catch (e) {
+        if (cancelled) return;
+        setSessionToken(null);
+        setSessionWallet(null);
+        setAuthStatus('error');
+        const msg = e instanceof Error ? e.message : 'Auth failed';
+        setAuthError(msg);
+        // Helpful for debugging Phantom / wallet-adapter behavior
+        console.error('Wallet auth failed:', msg, { wallet: connectedWallet });
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [connected, connectedWallet, signMessage, authAttempt]);
 
 
   const loadFeed = useCallback(() => {
@@ -168,6 +238,58 @@ export function App() {
         </nav>
 
         <div className="flex items-center gap-2 shrink-0">
+          {connectedWallet && (
+            <>
+              <span
+                className={`hidden lg:inline-flex text-[11px] px-2 py-1 rounded-md border ${
+                authStatus === 'authed'
+                  ? 'border-emerald-400/20 text-emerald-300 bg-emerald-400/5'
+                  : authStatus === 'authing'
+                    ? 'border-cyan-400/20 text-cyan-200 bg-cyan-400/5'
+                    : authStatus === 'unsupported'
+                      ? 'border-yellow-400/20 text-yellow-200 bg-yellow-400/5'
+                      : authStatus === 'error'
+                        ? 'border-red-400/20 text-red-200 bg-red-400/5'
+                        : 'border-sentinel-border/40 text-gray-400 bg-white/5'
+              }`}
+              title={
+                authStatus === 'authed'
+                  ? 'Wallet authenticated (signature verified)'
+                  : authStatus === 'authing'
+                    ? 'Authenticating wallet…'
+                    : authStatus === 'unsupported'
+                      ? 'Wallet does not support message signing; using read-only mode'
+                      : authStatus === 'error'
+                        ? `Wallet auth failed: ${authError ?? 'unknown error'}`
+                        : 'Not authenticated'
+              }
+            >
+              {authStatus === 'authed'
+                ? 'Verified'
+                : authStatus === 'authing'
+                  ? 'Verifying…'
+                  : authStatus === 'unsupported'
+                    ? 'Unverified'
+                    : authStatus === 'error'
+                      ? 'Auth failed'
+                      : 'Unverified'}
+              </span>
+              {authStatus === 'error' && (
+                <button
+                  onClick={() => {
+                    setSessionToken(null);
+                    setAuthStatus('idle');
+                    setAuthError(null);
+                    setAuthAttempt((n) => n + 1);
+                  }}
+                  className="hidden lg:inline-flex text-[11px] px-2 py-1 rounded-md border border-red-400/20 text-red-200 bg-red-400/5 hover:bg-red-400/10 transition-colors"
+                  title="Retry wallet authentication"
+                >
+                  Retry
+                </button>
+              )}
+            </>
+          )}
           <a
             href="https://bags.fm"
             target="_blank"
@@ -179,6 +301,31 @@ export function App() {
           <WalletMultiButton className="!bg-sentinel-accent/15 !border !border-sentinel-accent/25 !rounded-lg !h-9 !text-xs !font-medium !text-sentinel-accent hover:!bg-sentinel-accent/25 !transition-all !px-3" />
         </div>
       </header>
+
+      {/* Auth error banner (visible, non-hover) */}
+      {authStatus === 'error' && authError && (
+        <div className="px-4 sm:px-6 py-2 border-b border-red-400/15 bg-red-400/5">
+          <div className="max-w-5xl mx-auto w-full flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-[11px] uppercase tracking-wider text-red-200/80 font-medium">
+                Wallet auth failed
+              </div>
+              <div className="text-xs text-red-200/80 break-words">
+                {authError}
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                try { navigator.clipboard.writeText(authError); } catch { /* ignore */ }
+              }}
+              className="shrink-0 text-[11px] px-2 py-1 rounded-md border border-red-400/20 text-red-200/80 hover:bg-red-400/10 transition-colors"
+              title="Copy error"
+            >
+              Copy
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Mobile nav */}
       <div className="md:hidden px-4 py-2 border-b border-sentinel-border/30 bg-sentinel-surface/10 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">

@@ -166,24 +166,6 @@ export interface SentFeeShareConfig {
   feeClaimers: Array<{ label: string; wallet: string; bps: number }>;
 }
 
-// ── Swarm Types ──────────────────────────────────────────
-
-export interface SwarmAgent {
-  name: string;
-  role: string;
-  vote: 'proceed' | 'hold' | 'reject' | 'split';
-  reasoning: string;
-}
-
-export interface SwarmResult {
-  wallet: string;
-  agents: SwarmAgent[];
-  consensus: 'proceed' | 'hold' | 'reject' | 'split';
-  confidence: number;
-  summary: string;
-  cachedAt?: number;
-}
-
 // ── Trade Types ──────────────────────────────────────────
 
 export interface TradeQuote {
@@ -317,18 +299,6 @@ export class SentinelClient {
   /** Get $SENT fee share target config */
   async getSentFeeShare(): Promise<SentFeeShareConfig> {
     return this.request<SentFeeShareConfig>('/v1/app/fee-share');
-  }
-
-  // ── Swarm Intelligence ─────────────────────────────────
-
-  /** Run 5-agent swarm analysis for a wallet */
-  async runSwarm(wallet: string): Promise<SwarmResult> {
-    return this.request<SwarmResult>(`/v1/swarm/${encodeURIComponent(wallet)}`, { method: 'POST' });
-  }
-
-  /** Get cached swarm state for a wallet */
-  async getSwarmState(wallet: string): Promise<SwarmResult | null> {
-    return this.request<SwarmResult | null>(`/v1/swarm/${encodeURIComponent(wallet)}`);
   }
 
   // ── Trade Intelligence ─────────────────────────────────

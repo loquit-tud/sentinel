@@ -10,7 +10,6 @@
 | `compare_tokens` | Compare up to 5 tokens side-by-side, ranked by safety |
 | `get_wallet_xray` | Scan a wallet and flag all risky holdings |
 | `get_creator_profile` | Check if a token creator has a rug history |
-| `run_swarm_analysis` | 5-agent AI swarm votes on portfolio decisions |
 | `get_trade_quote` | Get swap quote with integrated risk scoring |
 | `get_smart_fees` | Risk-aware fee claim urgency (claim before rug!) |
 | `get_claimable_fees` | View all claimable Bags fees for a wallet |
@@ -80,8 +79,6 @@ Open Claude Desktop and ask:
 > "Compare these 3 tokens and tell me which is safest"
 
 > "Should I claim my Bags fees now or wait?"
-
-> "Run a full swarm analysis on my portfolio"
 
 ## Example Conversations
 

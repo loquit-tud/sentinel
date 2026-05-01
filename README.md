@@ -14,6 +14,18 @@ AI risk intelligence + wallet portfolio scanner for [Bags](https://bags.fm) trad
 
 ---
 
+## Why we built this
+
+We got rugged on Bags. Not by a scam token — by a token that looked fine at the time. LP was unlocked, mint authority was still active, top wallet held 18% — all visible on-chain, none of it surfaced in real time.
+
+The frustrating part: the signal was there 40 minutes before price collapsed. Score would have dropped from ~60 to ~20 if anyone had been watching. Nobody was.
+
+So we built the thing that watches. Then we got 20 false alarms in the first hour from cache warm-up artifacts (partial RugCheck data triggering fake tier transitions). We fixed that with a minimum lead-time filter and a self-healing purge on every cron tick. Then we got a real catch: `$BAG`, flagged 32 minutes before collapse. That's when we knew the mechanism worked.
+
+The project has gone through 4 rounds of page pruning because we kept adding things that looked cool but weren't actually Bags-native. What's left is what earns its place.
+
+---
+
 ## Autonomous Agent Loop
 
 Sentinel is not a dashboard — it's an **autonomous agent** that runs continuously without human input.
@@ -44,7 +56,7 @@ This loop runs on Cloudflare Workers cron (`*/15 * * * *`), costs $0/month on th
 
 ## What it does
 
-### 12 Pillars — fully implemented & deployed
+Eight on-chain signals, one number, updated every 60 seconds. The score is the baseline — the agent loop on top of it is what makes Sentinel different from a dashboard.
 
 #### 1. Risk Scoring Engine (core)
 Real-time risk score **0-100** for any token on Bags. Combines 8 weighted signals from 4 data sources.
@@ -68,44 +80,48 @@ Paste any Solana wallet → instant risk scan of ALL holdings. Portfolio health 
 #### 3. Auto Fee Optimizer
 Detect unclaimed creator fees, prioritize by risk urgency (critical/warning/safe), build unsigned claim transactions for wallet signing.
 
-#### 4. BagsSwarm Intelligence
-5-agent wallet advisory system. Analyzes wallet activity (unclaimed fees + portfolio risk) and recommends optimal actions:
-- **fee-scanner** — Identify unclaimed fee positions and urgency
-- **risk-sentinel** — Portfolio-wide risk exposure assessment
-- **auto-claimer** — Claim optimization recommendations
-- **launch-advisor** — Creator profile trust evaluation
-- **trade-signal** — Token position exit signals
-
-All 5 perspectives from a single Claude API call → majority (>50%) voting → single verdict with confidence score.
-
-#### 5. Partner Integration (Bags-native)
+#### 4. Partner Integration (Bags-native)
 Register as a Bags partner, query partner config + BPS allocation, claim partner fees. Full REST integration with Bags Partner API.
 
-#### 6. $SENT Token Gating
+#### 5. $SENT Token Gating
 Premium access tiers based on $SENT holdings (via Helius RPC):
 - **Free**: 0 $SENT — basic features
 - **Holder**: ≥1 $SENT — priority alerts, deeper scans, auto-claim
 - **Whale**: ≥10,000 $SENT — API key, custom webhooks, bulk scanning
 
-#### 7. Autonomous Telegram Alerts
+#### 6. Autonomous Telegram Alerts
 Two alert layers:
 - **@SentinelRiskAlerts** — public Telegram channel, auto-posted by the cron agent when a pre-rug catch fires
 - **Personal subscribers** — `POST /v1/alerts/subscribe` with optional wallet → get DM'd for every catch
 - Per-wallet fee monitor: register wallet + Telegram chat ID → get alerted when claimable fees cross threshold
 
-#### 8. Autonomous Firewall
-Pre-signature transaction screening — ALLOW / WARN / BLOCK decisions before your wallet signs. Auto-blocks rug-tier tokens, honeypots, and active LP drains. Per-wallet custom rules (whitelist/blocklist), configurable auto-protection settings, screening activity log, global stats.
+**Bot commands (DM the bot)**:
+- `/help` — command list
+- `/status <mint>` — score + tier + delta vs your last baseline
+- `/why <mint>` — explanation (Workers AI when available, fallback otherwise)
+- `/watch <mint>` / `/unwatch <mint>` / `/list` — watchlist management
+- `/report` — quick summary (watchlist + sampled deltas)
 
-#### 9. Insurance Pool
-Community-backed rug protection. Stake $SENT in 3 tiers (Backer / Guardian / Whale Shield). File claims when tokens rug — auto-approved if risk score dropped 40+ points or token hit rug-tier. Pool health tracking, per-wallet claim history.
+**Webhook setup (1 minute)**:
+- Set a Telegram webhook to your Worker:
 
-#### 10. Creator Trust Score
+```bash
+# Replace:
+# - <BOT_TOKEN> with your bot token
+# - <WORKER_BASE> with https://sentinel-api.apiworkersdev.workers.dev (or your custom domain)
+curl "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook" \
+  -d "url=<WORKER_BASE>/v1/telegram/webhook"
+```
+
+Optional hardening: set `TELEGRAM_WEBHOOK_SECRET` and pass Telegram's `secret_token` (or use `?secret=...`).
+
+#### 7. Creator Trust Score
 Advanced creator reputation with 8 behavioral signals: token age patterns, serial launcher detection (5+ tokens in 30 days), LP removal tracking, mint authority retention, holder concentration analysis, fee consistency. Weighted scoring with human-readable risk flags and verdict.
 
-#### 11. Pre-Rug Simulator
+#### 8. Pre-Rug Simulator
 "What if?" analysis for 6 rug scenarios: LP Pull, Mint Exploit, Whale Dump, Freeze Attack, Slow Rug, Honeypot Activation. Each with probability, estimated loss %, timeframe, explanation, and mitigations. Overall risk + worst-case identification.
 
-#### 12. $SENT Fee Stats
+#### 9. $SENT Fee Stats
 Live fee-sharing display: 24h volume → 1% Bags fee → 30% distributed to $SENT holders. Per-holder daily earnings estimate. [`GET /v1/sent/fee-stats`](https://sentinel-api.apiworkersdev.workers.dev/v1/sent/fee-stats) — cached 5 min, powered by Birdeye.
 
 ---
@@ -122,7 +138,7 @@ Sentinel isn't just "analytics for Bags tokens" — we're a **first-class Bags p
 | `GET /partner/config` · `POST /partner/create` | Partner registration + fee-share | [worker/src/partner/bags-partner.ts](worker/src/partner/bags-partner.ts) |
 | `GET /partner/claim-stats` · `GET /partner/claim-txs` | Partner earnings + claims | [worker/src/partner/bags-partner.ts](worker/src/partner/bags-partner.ts) |
 | `POST /token-launch/create` | Token Launch page (UI calls proxied) | [worker/src/token/](worker/src/token/) |
-| `GET /trade/quote` · `POST /trade/build` | Swap quotes for firewall pre-screen | [worker/src/trade/swap.ts](worker/src/trade/swap.ts) |
+| `GET /trade/quote` · `POST /trade/build` | Swap quotes with risk context | [worker/src/trade/swap.ts](worker/src/trade/swap.ts) |
 
 **Auth**: `x-api-key: ${BAGS_API_KEY}` header, set via `wrangler secret put BAGS_API_KEY`.
 
@@ -135,6 +151,26 @@ Sentinel isn't just "analytics for Bags tokens" — we're a **first-class Bags p
 ## Evidence & Audit Trail
 
 We don't ask for trust — we give you reproducible proof.
+
+### Alerts vs Catches (avoid confusion)
+
+- **Risk Alert Feed** (`GET /v1/alerts/feed`): frequent, day-to-day monitoring events (tier changes, LP unlock/drain, holder spikes).\n
+- **Pre-rug Catches** (`GET /v1/watch/catches`): rare by design — only high-quality events that meet stricter thresholds (meant for “judge-proof” evidence chains).\n
+
+If you only look at “catches”, you may see very few. That’s intentional. Most real-world monitoring produces alerts; catches are the curated subset.
+
+### How to verify (judge-proof, 2 minutes)
+
+1) **Open the dashboard**: https://sentinel-dashboard-3uy.pages.dev\n
+2) **Verify live API is up**:\n
+   - `GET /health`: https://sentinel-api.apiworkersdev.workers.dev/health\n
+3) **See live alerts (timestamped)**:\n
+   - `GET /v1/alerts/feed?format=json`: https://sentinel-api.apiworkersdev.workers.dev/v1/alerts/feed?format=json\n
+4) **See catches (rare, curated)**:\n
+   - `GET /v1/watch/catches?limit=10`: https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=10\n
+5) **Connect Telegram (creator-first)**:\n
+   - In dashboard, click “Open bot DM …” → send `/start` → “Connect Telegram”.\n
+   - Optional: add **Creator wallet** to filter alerts to your own tokens.\n
 
 **Live Bags leaderboard scan** (refreshed every 15 min via cron):
 - Top 50 tokens scored every cycle → cached in Workers KV (30 min TTL)
@@ -149,7 +185,7 @@ curl https://sentinel-api.apiworkersdev.workers.dev/stats
 
 **Methodology audit** — for any token, inspect our score *and* the raw signals:
 ```bash
-curl "https://sentinel-api.apiworkersdev.workers.dev/v1/risk/token/<mint>"
+curl "https://sentinel-api.apiworkersdev.workers.dev/v1/risk/<mint>"
 # Returns: score, tier, breakdown { honeypot, lpLocked, mintAuthority,
 # freezeAuthority, topHolderPct, liquidityDepth, volumeHealth, creatorReputation }
 ```

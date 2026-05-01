@@ -12,3 +12,13 @@ PROJECT_PLAN.md
 __pycache__/
 *.pyc
 scripts/*.html
+
+# Local editor/agent state (do not commit)
+.cursor/
+.vscode/
+
+# Local demo assets (generated/iterative)
+demo-guide.html
+demo-prep.html
+scripts/demo-run.ps1
+scripts/demo-teleprompter.md

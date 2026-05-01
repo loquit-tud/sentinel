@@ -7,6 +7,114 @@ const API_URL = import.meta.env.VITE_API_URL ?? (
 );
 const BASE = `${API_URL}/v1`;
 
+// ── Auth (signature session) ──────────────────────────────
+
+const SESSION_TOKEN_KEY = 'sentinel_session_token_v1';
+const SESSION_WALLET_KEY = 'sentinel_session_wallet_v1';
+
+export function getSessionToken(): string | null {
+  try {
+    const fromLocal = localStorage.getItem(SESSION_TOKEN_KEY);
+    if (fromLocal && fromLocal.startsWith('sess_')) return fromLocal;
+  } catch {
+    // ignore
+  }
+  try {
+    const fromSession = sessionStorage.getItem(SESSION_TOKEN_KEY);
+    return fromSession && fromSession.startsWith('sess_') ? fromSession : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getSessionWallet(): string | null {
+  try {
+    const w = localStorage.getItem(SESSION_WALLET_KEY);
+    return w && w.length >= 32 ? w : null;
+  } catch {
+    // ignore
+  }
+  try {
+    const w = sessionStorage.getItem(SESSION_WALLET_KEY);
+    return w && w.length >= 32 ? w : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setSessionToken(token: string | null): void {
+  try {
+    if (!token) localStorage.removeItem(SESSION_TOKEN_KEY);
+    else localStorage.setItem(SESSION_TOKEN_KEY, token);
+  } catch {
+    // ignore
+  }
+  // Fallback: some environments block localStorage writes (privacy settings).
+  try {
+    if (!token) sessionStorage.removeItem(SESSION_TOKEN_KEY);
+    else sessionStorage.setItem(SESSION_TOKEN_KEY, token);
+  } catch {
+    // ignore
+  }
+}
+
+export function setSessionWallet(wallet: string | null): void {
+  try {
+    if (!wallet) localStorage.removeItem(SESSION_WALLET_KEY);
+    else localStorage.setItem(SESSION_WALLET_KEY, wallet);
+  } catch {
+    // ignore
+  }
+  try {
+    if (!wallet) sessionStorage.removeItem(SESSION_WALLET_KEY);
+    else sessionStorage.setItem(SESSION_WALLET_KEY, wallet);
+  } catch {
+    // ignore
+  }
+}
+
+function buildAuthHeaders(opts?: { wallet?: string | null }): Record<string, string> | undefined {
+  const token = getSessionToken();
+  if (token) return { Authorization: `Bearer ${token}` };
+  if (opts?.wallet) return { 'x-wallet': opts.wallet };
+  return undefined;
+}
+
+export interface AuthChallenge {
+  challengeId: string;
+  wallet: string;
+  message: string;
+  expiresAt: number;
+}
+
+export async function authChallenge(wallet: string): Promise<AuthChallenge> {
+  const res = await fetch(`${BASE}/auth/challenge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ wallet }),
+  });
+  const body: ApiResponse<AuthChallenge> = await res.json();
+  if (!body.ok || !body.data) throw new Error(body.error ?? 'Auth challenge failed');
+  return body.data;
+}
+
+export interface AuthVerifyResult {
+  sessionToken: string;
+  wallet: string;
+  expiresAt: number;
+}
+
+export async function authVerify(params: { challengeId: string; wallet: string; signature: string }): Promise<AuthVerifyResult> {
+  const res = await fetch(`${BASE}/auth/verify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const body: ApiResponse<AuthVerifyResult> = await res.json();
+  if (!body.ok || !body.data) throw new Error(body.error ?? 'Auth verify failed');
+  return body.data;
+}
+
 // ── Wallet X-Ray ─────────────────────────────────────────
 
 export interface XRayToken {
@@ -46,7 +154,7 @@ export async function fetchRiskScore(mint: string, wallet?: string | null): Prom
   let res: Response;
   try {
     res = await fetch(`${BASE}/risk/${mint}`, {
-      headers: wallet ? { 'x-wallet': wallet } : undefined,
+      headers: buildAuthHeaders({ wallet }),
     });
   } catch (err) {
     throw new Error(`Network error: ${err instanceof Error ? err.message : 'fetch failed'}`);
@@ -363,6 +471,17 @@ export async function fetchAlertFeed(): Promise<AlertFeed> {
   return body.data;
 }
 
+export async function fetchAlertSubscriberCount(): Promise<number | null> {
+  try {
+    const res = await fetch(`${BASE}/alerts/subscribers/count`);
+    const body: ApiResponse<{ count: number }> = await res.json();
+    if (!body.ok || typeof body.data?.count !== 'number') return null;
+    return body.data.count;
+  } catch {
+    return null;
+  }
+}
+
 // ── AI Explanation ────────────────────────────────────────
 
 export interface RiskExplanation {
@@ -407,6 +526,69 @@ export async function triggerAlertScan(): Promise<{ newAlerts: number; alerts: R
   return body.data;
 }
 
+// ── Creator Alerts (Telegram subscriptions) ───────────────
+
+export async function resolveTelegramChatId(username?: string): Promise<string> {
+  const res = await fetch(`${BASE}/alerts/telegram/resolve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(username ? { username } : {}),
+  });
+  const body: ApiResponse<{ chatId: string }> = await res.json();
+  if (!body.ok || !body.data?.chatId) throw new Error(body.error ?? 'Failed to resolve Telegram chatId');
+  return body.data.chatId;
+}
+
+export async function subscribeAlerts(params: { chatId: string; wallet?: string }): Promise<string> {
+  const res = await fetch(`${BASE}/alerts/subscribe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  const body = await res.json() as ApiResponse<unknown> & { message?: string };
+  if (!body.ok) throw new Error(body.error ?? 'Subscribe failed');
+  return body.message ?? 'Subscribed';
+}
+
+export async function unsubscribeAlerts(chatId: string): Promise<void> {
+  const res = await fetch(`${BASE}/alerts/subscribe`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chatId }),
+  });
+  const body: ApiResponse<unknown> = await res.json();
+  if (!body.ok) throw new Error(body.error ?? 'Unsubscribe failed');
+}
+
+export async function fetchSubscription(chatId: string): Promise<{
+  subscribed: boolean;
+  chatId?: string;
+  wallet?: string | null;
+  createdAt?: number;
+  updatedAt?: number;
+}> {
+  const res = await fetch(`${BASE}/alerts/subscription/${encodeURIComponent(chatId)}`);
+  const body: ApiResponse<{
+    subscribed: boolean;
+    chatId?: string;
+    wallet?: string | null;
+    createdAt?: number;
+    updatedAt?: number;
+  }> = await res.json();
+  if (!body.ok || !body.data) throw new Error(body.error ?? 'Failed to fetch subscription');
+  return body.data;
+}
+
+export async function fetchTelegramBotInfo(): Promise<{ username: string; deepLink: string } | null> {
+  try {
+    const res = await fetch(`${BASE}/alerts/telegram/bot`);
+    const body: ApiResponse<{ username: string; deepLink: string }> = await res.json();
+    return body.ok && body.data?.username && body.data?.deepLink ? body.data : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── $SENT Fee Stats ─────────────────────────────────────
 
 export interface SentFeeStats {
@@ -448,83 +630,6 @@ export async function fetchCreatorProfile(wallet: string): Promise<CreatorProfil
   const body: ApiResponse<CreatorProfile> = await res.json();
   if (!body.ok || !body.data) throw new Error(body.error ?? 'Failed to fetch creator profile');
   return body.data;
-}
-
-// ── Swarm Intelligence ───────────────────────────────────
-
-export type AgentId = 'fee-scanner' | 'risk-sentinel' | 'auto-claimer' | 'launch-advisor' | 'trade-signal';
-export type SwarmConsensus = 'proceed' | 'hold' | 'reject' | 'split';
-
-export interface SwarmAgentStatus {
-  agentId: AgentId;
-  name: string;
-  status: 'idle' | 'analyzing' | 'voted' | 'error';
-  voteCount: number;
-  lastRunAt: number;
-  lastError?: string;
-}
-
-export interface SwarmDecisionData {
-  id: string;
-  topic: string;
-  consensus: SwarmConsensus;
-  confidence: number;
-  finalAction: string;
-  reasoning: string;
-  votes: Array<{
-    agentId: AgentId;
-    action: string;
-    confidence: number;
-    reasoning: string;
-  }>;
-  timestamp: number;
-}
-
-export interface SwarmCycleData {
-  cycleId: string;
-  wallet: string;
-  startedAt: number;
-  completedAt: number;
-  summary: string;
-  decisions: SwarmDecisionData[];
-  agentStatuses: SwarmAgentStatus[];
-}
-
-export async function runSwarmCycle(wallet: string): Promise<SwarmCycleData> {
-  let res: Response;
-  try {
-    res = await fetch(`${BASE}/swarm/${wallet}`, { method: 'POST' });
-  } catch (err) {
-    throw new Error(`Network error: ${err instanceof Error ? err.message : 'fetch failed'}`);
-  }
-  const body: ApiResponse<SwarmCycleData> = await res.json();
-  if (!body.ok || !body.data) throw new Error(body.error ?? 'Swarm cycle failed');
-  return body.data;
-}
-
-export async function runTokenSwarmCycle(mint: string, wallet?: string | null): Promise<SwarmCycleData> {
-  let res: Response;
-  try {
-    res = await fetch(`${BASE}/swarm/token/${mint}`, {
-      method: 'POST',
-      headers: wallet ? { 'x-wallet': wallet } : undefined,
-    });
-  } catch (err) {
-    throw new Error(`Network error: ${err instanceof Error ? err.message : 'fetch failed'}`);
-  }
-  const body: ApiResponse<SwarmCycleData> = await res.json();
-  if (!body.ok || !body.data) throw new Error(body.error ?? 'Token swarm cycle failed');
-  return body.data;
-}
-
-export async function fetchSwarmState(wallet: string): Promise<{ cycleCount: number } | null> {
-  try {
-    const res = await fetch(`${BASE}/swarm/${wallet}`);
-    const body: ApiResponse<{ cycleCount: number }> = await res.json();
-    return body.ok && body.data ? body.data : null;
-  } catch {
-    return null;
-  }
 }
 
 // ── Smart Trade ──────────────────────────────────────────

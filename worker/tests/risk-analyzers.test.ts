@@ -127,8 +127,9 @@ describe('analyzeRugCheck', () => {
 describe('analyzeBirdeye', () => {
   it('returns neutral when both null', () => {
     const r = analyzeBirdeye(null, null);
-    expect(r.liquidityDepth).toBe(0);
-    expect(r.volumeHealth).toBe(0);
+    // Missing Birdeye data is imputed conservatively (not confirmed zero)
+    expect(r.liquidityDepth).toBe(45);
+    expect(r.volumeHealth).toBe(45);
   });
 
   it('normalizes liquidity to 100 at $100K', () => {

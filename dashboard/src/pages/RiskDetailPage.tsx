@@ -355,6 +355,20 @@ export function RiskDetailPage({ mint, onBack, connectedWallet }: { mint: string
             </div>
           </div>
 
+          {/* Missing data confidence banner */}
+          {score.missingSignals && score.missingSignals.length > 0 && (
+            <div className="bg-yellow-500/8 border border-yellow-500/25 rounded-xl p-3 flex items-start gap-3">
+              <span className="text-yellow-400 text-base mt-0.5">⚠</span>
+              <div>
+                <p className="text-yellow-300 text-xs font-semibold">Incomplete market data — score capped at Caution</p>
+                <p className="text-yellow-500/80 text-xs mt-0.5">
+                  {score.missingSignals.map(s => s === 'liquidityDepth' ? 'Liquidity Depth' : 'Volume Health').join(' and ')} {score.missingSignals.length > 1 ? 'are' : 'is'} unavailable from Birdeye.
+                  Score is {Math.round((score.dataConfidence ?? 1) * 100)}% confident — cannot confirm SAFE without market data.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Share bar */}
           <div className="bg-sentinel-surface border border-sentinel-border/60 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center gap-2">

@@ -258,32 +258,6 @@ Use this to understand Sentinel's tokenomics and fee distribution.`,
     },
   },
   {
-    name: 'run_swarm_analysis',
-    description: `Run Sentinel's 5-agent AI swarm analysis on a wallet's portfolio.
-
-5 specialized agents vote independently:
-- Fee Scanner: fee claim urgency
-- Risk Sentinel: portfolio risk exposure
-- Auto Claimer: optimal claim timing (value vs gas)
-- Launch Advisor: fee optimization strategies
-- Trade Signal: safe vs risky position advice
-
-Returns consensus (proceed/hold/reject/split) with confidence score and per-agent reasoning.
-
-Use this when a user asks "should I buy/sell?", "what should I do with my portfolio?", or "give me a full analysis".
-This is the most comprehensive analysis tool — use it for important decisions.`,
-    inputSchema: {
-      type: 'object' as const,
-      properties: {
-        wallet: {
-          type: 'string',
-          description: 'Solana wallet address (base58) to analyze',
-        },
-      },
-      required: ['wallet'],
-    },
-  },
-  {
     name: 'get_trade_quote',
     description: `Get a swap quote with integrated risk scoring for the output token.
 
@@ -602,39 +576,6 @@ export async function handleToolCall(
         allocations: config.allocations,
         summary: `${config.allocations.creatorPct}% creator / ${config.allocations.holdersPct}% holders / ${config.allocations.devFundPct}% dev / ${config.allocations.partnerPct}% partner`,
         feeClaimers: config.feeClaimers.map(fc => `${fc.label}: ${fc.bps} bps`),
-      };
-    }
-
-    case 'run_swarm_analysis': {
-      const wallet = requireSolanaAddress(args.wallet, 'wallet');
-      const result = await client.runSwarm(wallet);
-
-      const agentSummaries = result.agents.map((a) => ({
-        agent: a.name,
-        role: a.role,
-        vote: a.vote,
-        reasoning: a.reasoning,
-      }));
-
-      const votes = result.agents.reduce((acc, a) => {
-        acc[a.vote] = (acc[a.vote] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>);
-
-      return {
-        wallet: result.wallet,
-        consensus: result.consensus,
-        confidence: `${(result.confidence * 100).toFixed(0)}%`,
-        summary: result.summary,
-        agentVotes: votes,
-        agents: agentSummaries,
-        recommendation: result.consensus === 'proceed'
-          ? 'Agents recommend proceeding. Execute planned actions with standard risk limits.'
-          : result.consensus === 'hold'
-            ? 'Agents recommend holding current positions. Wait for better conditions.'
-            : result.consensus === 'reject'
-              ? 'Agents recommend against action. De-risk and claim any outstanding fees.'
-              : 'Agents are split. Review individual agent reasoning before deciding.',
       };
     }
 

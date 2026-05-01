@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { RiskAlert, AlertSeverity, AlertType, RiskTier } from '../../../shared/types';
 import { TierBadge } from '../components/RiskDisplay';
-import { fetchAlertFeed, triggerAlertScan } from '../api';
+import { fetchAlertFeed, triggerAlertScan, resolveTelegramChatId, subscribeAlerts, unsubscribeAlerts, fetchSubscription, fetchTelegramBotInfo, fetchAlertSubscriberCount } from '../api';
 
 const SEVERITY_STYLES: Record<AlertSeverity, { border: string; bg: string; icon: string }> = {
   critical: { border: 'border-sentinel-danger/50', bg: 'bg-sentinel-danger/5', icon: '🚨' },
@@ -133,6 +133,21 @@ export function AlertFeedPage({
   const [scanning, setScanning] = useState(false);
   const [filter, setFilter] = useState<'all' | 'critical' | 'warning'>('all');
 
+  // Creator alerts subscription (Telegram)
+  const [tgUsername, setTgUsername] = useState('');
+  const [creatorWallet, setCreatorWallet] = useState('');
+  const [resolvedChatId, setResolvedChatId] = useState<string | null>(null);
+  const [subStatus, setSubStatus] = useState<string | null>(null);
+  const [subBusy, setSubBusy] = useState(false);
+  const [subInfo, setSubInfo] = useState<{ subscribed: boolean; wallet?: string | null } | null>(null);
+  const [botInfo, setBotInfo] = useState<{ username: string; deepLink: string } | null>(null);
+  const [subscriberCount, setSubscriberCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetchTelegramBotInfo().then(setBotInfo).catch(() => {});
+    fetchAlertSubscriberCount().then(setSubscriberCount).catch(() => {});
+  }, []);
+
   const loadFeed = useCallback(() => {
     setLoading(true);
     setError(null);
@@ -169,6 +184,45 @@ export function AlertFeedPage({
     }
   };
 
+  const handleSubscribe = async () => {
+    setSubBusy(true);
+    setSubStatus(null);
+    try {
+      const username = tgUsername.trim();
+      // Username is optional; if omitted, we auto-detect the most recent private chat update.
+      const chatId = await resolveTelegramChatId(username || undefined);
+      setResolvedChatId(chatId);
+      const msg = await subscribeAlerts({
+        chatId,
+        wallet: creatorWallet.trim() || undefined,
+      });
+      setSubStatus(msg);
+      const info = await fetchSubscription(chatId);
+      setSubInfo({ subscribed: info.subscribed, wallet: info.wallet ?? null });
+    } catch (e) {
+      setSubStatus(e instanceof Error ? e.message : 'Subscribe failed');
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
+  const handleUnsubscribe = async () => {
+    setSubBusy(true);
+    setSubStatus(null);
+    try {
+      const chatId = resolvedChatId;
+      if (!chatId) throw new Error('Resolve chatId first (subscribe once)');
+      await unsubscribeAlerts(chatId);
+      setSubStatus('Unsubscribed.');
+      const info = await fetchSubscription(chatId);
+      setSubInfo({ subscribed: info.subscribed, wallet: info.wallet ?? null });
+    } catch (e) {
+      setSubStatus(e instanceof Error ? e.message : 'Unsubscribe failed');
+    } finally {
+      setSubBusy(false);
+    }
+  };
+
   const filtered = filter === 'all'
     ? alerts
     : alerts.filter((a) => a.severity === filter);
@@ -185,6 +239,9 @@ export function AlertFeedPage({
           <p className="text-sm text-gray-500 mt-1">
             Live monitoring of Bags tokens. Tier changes, LP unlocks, holder concentration spikes.
           </p>
+          <p className="text-xs text-gray-600 mt-2">
+            This feed shows <span className="text-gray-400">daily events</span>. “Catches” are rare by design — see <span className="font-mono">/v1/watch/catches</span> for high-quality pre-rug catches.
+          </p>
         </div>
         <button
           onClick={handleScan}
@@ -199,11 +256,125 @@ export function AlertFeedPage({
         </button>
       </div>
 
+      {/* Creator Alerts (Telegram) */}
+      <div className="p-4 rounded-xl border border-sentinel-border/60 bg-black/20 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Creator Alerts (Telegram)</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              Get DMs when <span className="text-gray-300">your</span> tokens hit <span className="text-gray-300">LP unlock / LP drain</span>.
+              Step 1: DM the bot once on Telegram (send <span className="font-mono text-gray-300">/start</span>), then subscribe here.
+            </p>
+            {botInfo && (
+              <a
+                href={botInfo.deepLink}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex mt-2 text-[11px] px-2.5 py-1.5 rounded-md border border-sentinel-border/60 text-gray-300 hover:border-sentinel-accent/40 hover:text-sentinel-accent transition-all"
+              >
+                Open bot DM @{botInfo.username} →
+              </a>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 rounded-lg border border-sentinel-border/50 bg-black/20">
+          <div className="text-[11px] text-gray-500">
+            <span className="text-gray-300 font-semibold">Bot commands</span>
+            <div className="mt-1 space-y-1">
+              <div><span className="font-mono text-gray-300">/status &lt;mint&gt;</span> — score + tier</div>
+              <div><span className="font-mono text-gray-300">/why &lt;mint&gt;</span> — explanation</div>
+              <div><span className="font-mono text-gray-300">/watch &lt;mint&gt;</span> — watchlist</div>
+              <div><span className="font-mono text-gray-300">/report</span> — quick summary</div>
+            </div>
+          </div>
+          <div className="text-[11px] text-gray-500">
+            <span className="text-gray-300 font-semibold">Docs</span>
+            <div className="mt-1 space-y-1">
+              <a
+                href="https://github.com/loquit-doru/sentinel/blob/master/docs/telegram.md"
+                target="_blank"
+                rel="noopener"
+                className="text-sentinel-accent hover:underline"
+              >
+                Setup + troubleshooting ↗
+              </a>
+              <div className="text-[10px] text-gray-600">Developers: how to set webhook + secret token.</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-[11px] text-gray-500">Telegram username</label>
+            <input
+              value={tgUsername}
+              onChange={(e) => setTgUsername(e.target.value)}
+            placeholder="@yourname (optional)"
+              className="w-full px-3 py-2 text-sm rounded-lg bg-black/30 border border-sentinel-border/60 text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-sentinel-accent/60"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-[11px] text-gray-500">Creator wallet (optional filter)</label>
+            <input
+              value={creatorWallet}
+              onChange={(e) => setCreatorWallet(e.target.value)}
+              placeholder="Your Solana wallet (creator)"
+              className="w-full px-3 py-2 text-sm rounded-lg bg-black/30 border border-sentinel-border/60 text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-sentinel-accent/60"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSubscribe}
+            disabled={subBusy}
+            className={`text-xs px-3 py-2 rounded-md font-medium transition-all ${
+              subBusy
+                ? 'bg-sentinel-accent/20 text-sentinel-accent/60 cursor-wait'
+                : 'bg-sentinel-accent hover:bg-sentinel-accent-dim text-white'
+            }`}
+          >
+            {subBusy ? 'Working…' : 'Subscribe'}
+          </button>
+          <button
+            onClick={handleUnsubscribe}
+            disabled={subBusy || !resolvedChatId}
+            className="text-xs px-3 py-2 rounded-md border border-sentinel-border/60 text-gray-300 hover:border-sentinel-accent/40 disabled:opacity-40"
+          >
+            Unsubscribe
+          </button>
+          {resolvedChatId && (
+            <span className="text-[10px] text-gray-600 font-mono ml-auto">
+              chatId: {resolvedChatId}
+            </span>
+          )}
+        </div>
+
+        {(subStatus || subInfo) && (
+          <div className="text-xs text-gray-400">
+            {subStatus && <div>{subStatus}</div>}
+            {subInfo && (
+              <div className="text-[11px] text-gray-600 mt-1">
+                Status: <span className="text-gray-400">{subInfo.subscribed ? 'subscribed' : 'not subscribed'}</span>
+                {subInfo.wallet ? <> · wallet filter: <span className="font-mono">{subInfo.wallet.slice(0, 6)}…{subInfo.wallet.slice(-4)}</span></> : null}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Stats bar */}
       <div className="flex items-center gap-4 text-xs">
         <span className="text-gray-500">
           {scannedTokens > 0 ? `${scannedTokens} tokens monitored` : 'No scans yet'}
         </span>
+        {typeof subscriberCount === 'number' && (
+          <>
+            <span className="text-gray-700">·</span>
+            <span className="text-gray-500">{subscriberCount} Telegram subscribers</span>
+          </>
+        )}
         {lastScan > 0 && (
           <>
             <span className="text-gray-700">·</span>

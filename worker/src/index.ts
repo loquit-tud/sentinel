@@ -28,14 +28,17 @@ import type { GateTier } from './gate/token-gate';
 const USD_HOLDER_MIN = 1.0; // $1 USD — must match token-gate.ts
 import { getAppStoreInfo, getSentFeeShareTarget } from './app-store/info';
 import { fetchSentFeeStats } from './token/sent-stats';
-import { runSwarmCycle, getSwarmState, runTokenSwarmCycle } from './swarm/engine';
 import { computeCreatorTrustScore } from './creator/trust-score';
 import { runPreRugWatch, getRecentCatches, getWatchStats, getTokenMemory } from './watch/pre-rug-catcher';
-import { subscribe as tgSubscribe, unsubscribe as tgUnsubscribe, notifySubscribersOfCatch, getSubscriberCount } from './notify/alert-subscriptions';
+import { getCatchEvidence } from './watch/catch-evidence';
+import { subscribe as tgSubscribe, unsubscribe as tgUnsubscribe, notifySubscribersOfCatch, getSubscriberCount, getSubscription } from './notify/alert-subscriptions';
 import type { CatchPayload } from './notify/alert-subscriptions';
+import { addWatchMint, removeWatchMint, getWatchlist, getBaseline, putBaseline, formatDeltaLine } from './notify/watchlists';
 import { computeSurvival } from './launch/survival';
 import type { SurvivalInput } from './launch/survival';
 import { generateRiskExplanation } from './risk/explain';
+import nacl from 'tweetnacl';
+import bs58 from 'bs58';
 
 export interface Env {
   // Secrets
@@ -44,7 +47,7 @@ export interface Env {
   BAGS_API_KEY?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_ALERT_CHANNEL_ID?: string;
-  ANTHROPIC_API_KEY?: string;
+  TELEGRAM_WEBHOOK_SECRET?: string;
   ENABLE_KV_ANALYTICS?: string;
   // KV
   SENTINEL_KV?: KVNamespace;
@@ -55,6 +58,8 @@ export interface Env {
 const SOLANA_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 const app = new Hono<{ Bindings: Env }>();
+
+// ── CORS (must be registered before routes) ───────────────
 
 const ALLOWED_ORIGINS = [
   'https://sentinel-dashboard-3uy.pages.dev',
@@ -69,6 +74,7 @@ const ALLOWED_ORIGINS = [
 app.use('/*', cors({
   origin: (origin) => {
     if (!origin) return '*'; // server-to-server, curl, embed iframes
+    if (!origin || origin === 'null') return '*'; // file:// local HTML
     if (ALLOWED_ORIGINS.includes(origin)) return origin;
     if (origin.endsWith('.pages.dev')) return origin; // CF Pages previews
     return null;
@@ -77,6 +83,143 @@ app.use('/*', cors({
   allowHeaders: ['Content-Type', 'Authorization', 'x-wallet'],
   maxAge: 86400,
 }));
+
+// ── Auth (Ed25519) ────────────────────────────────────────
+
+const AUTH_CHALLENGE_TTL_SECONDS = 5 * 60; // 5 min
+const AUTH_SESSION_TTL_SECONDS = 2 * 60 * 60; // 2 hours
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  // btoa expects latin1 string
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function randomToken(bytes = 32): string {
+  const b = new Uint8Array(bytes);
+  crypto.getRandomValues(b);
+  return bytesToBase64Url(b);
+}
+
+function getBearerToken(c: any): string | null {
+  const h = (c.req.header('authorization') ?? c.req.header('Authorization') ?? '').trim();
+  if (!h) return null;
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  return m ? m[1].trim() : null;
+}
+
+async function resolveAuthedWallet(c: any): Promise<string | null> {
+  const kv = c.env.SENTINEL_KV as KVNamespace | undefined;
+  if (!kv) return null;
+  const token = getBearerToken(c);
+  if (!token) return null;
+  const session = await kv.get<{ wallet: string; exp: number }>(`auth:sess:${token}`, 'json').catch(() => null);
+  if (!session?.wallet || !SOLANA_ADDR_RE.test(session.wallet)) return null;
+  if (typeof session.exp !== 'number' || session.exp < Date.now()) return null;
+  return session.wallet;
+}
+
+function buildAuthMessage(params: { wallet: string; nonce: string; issuedAt: number; expiresAt: number }): string {
+  // Keep message stable and strict: wallets sign this exact string.
+  return [
+    'Sentinel Authentication',
+    `wallet=${params.wallet}`,
+    `nonce=${params.nonce}`,
+    `issuedAt=${params.issuedAt}`,
+    `expiresAt=${params.expiresAt}`,
+  ].join('\n');
+}
+
+app.post('/v1/auth/challenge', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+
+  const body = await c.req.json().catch(() => null) as { wallet?: string };
+  const wallet = body?.wallet?.trim() ?? '';
+  if (!SOLANA_ADDR_RE.test(wallet)) {
+    return c.json({ ok: false, error: 'Invalid wallet address' }, 400);
+  }
+
+  const challengeId = `ch_${randomToken(18)}`;
+  const nonce = randomToken(16);
+  const issuedAt = Date.now();
+  const expiresAt = issuedAt + AUTH_CHALLENGE_TTL_SECONDS * 1000;
+  const message = buildAuthMessage({ wallet, nonce, issuedAt, expiresAt });
+
+  await kv.put(
+    `auth:ch:${challengeId}`,
+    JSON.stringify({ wallet, nonce, issuedAt, expiresAt }),
+    { expirationTtl: AUTH_CHALLENGE_TTL_SECONDS },
+  );
+
+  return c.json({
+    ok: true,
+    data: { challengeId, wallet, message, expiresAt },
+  });
+});
+
+app.post('/v1/auth/verify', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+
+  const body = await c.req.json().catch(() => null) as {
+    challengeId?: string;
+    wallet?: string;
+    signature?: string; // base58
+  };
+
+  const challengeId = body?.challengeId?.trim() ?? '';
+  const wallet = body?.wallet?.trim() ?? '';
+  const signatureB58 = body?.signature?.trim() ?? '';
+
+  if (!challengeId.startsWith('ch_') || challengeId.length < 10) {
+    return c.json({ ok: false, error: 'Invalid challengeId' }, 400);
+  }
+  if (!SOLANA_ADDR_RE.test(wallet)) {
+    return c.json({ ok: false, error: 'Invalid wallet address' }, 400);
+  }
+  if (!signatureB58) {
+    return c.json({ ok: false, error: 'Missing signature' }, 400);
+  }
+
+  const ch = await kv.get<{ wallet: string; nonce: string; issuedAt: number; expiresAt: number }>(`auth:ch:${challengeId}`, 'json');
+  if (!ch) return c.json({ ok: false, error: 'Challenge not found or expired' }, 404);
+  if (ch.wallet !== wallet) return c.json({ ok: false, error: 'Wallet mismatch for challenge' }, 400);
+  if (typeof ch.expiresAt !== 'number' || ch.expiresAt < Date.now()) {
+    return c.json({ ok: false, error: 'Challenge expired' }, 401);
+  }
+
+  const message = buildAuthMessage({ wallet, nonce: ch.nonce, issuedAt: ch.issuedAt, expiresAt: ch.expiresAt });
+  const msgBytes = new TextEncoder().encode(message);
+
+  let sigBytes: Uint8Array;
+  try {
+    sigBytes = bs58.decode(signatureB58);
+  } catch {
+    return c.json({ ok: false, error: 'Invalid signature encoding (expected base58)' }, 400);
+  }
+
+  const pkBytes = bs58.decode(wallet);
+  const ok = nacl.sign.detached.verify(msgBytes, sigBytes, pkBytes);
+  if (!ok) return c.json({ ok: false, error: 'Invalid signature' }, 401);
+
+  // Single-use challenge
+  c.executionCtx.waitUntil(kv.delete(`auth:ch:${challengeId}`).catch(() => {}));
+
+  const sessionToken = `sess_${randomToken(24)}`;
+  const exp = Date.now() + AUTH_SESSION_TTL_SECONDS * 1000;
+  await kv.put(`auth:sess:${sessionToken}`, JSON.stringify({ wallet, exp }), { expirationTtl: AUTH_SESSION_TTL_SECONDS });
+
+  return c.json({
+    ok: true,
+    data: {
+      sessionToken,
+      wallet,
+      expiresAt: exp,
+    },
+  });
+});
 
 // ── Rate limiting (in-memory per-isolate; CF spreads requests across many isolates) ──
 // Lightweight defense against accidental spam from a single client.
@@ -174,7 +317,7 @@ app.get('/health', (c) => {
     service: 'sentinel-api',
     version: '0.13.0',
     pillars: ['risk-scoring-engine', 'wallet-xray'],
-    features: ['autoclaim', 'alert-feed', 'creator-reputation', 'token-gating', 'fee-analytics', 'social-sharing', 'autonomous-firewall'],
+    features: ['autoclaim', 'alert-feed', 'creator-reputation', 'token-gating', 'fee-analytics', 'social-sharing'],
     bagsNative: true,
     walletConnect: true,
   });
@@ -205,7 +348,7 @@ app.get('/stats', async (c) => {
   const totalAll = [totalRisk, totalFees, totalClaim, totalFeed]
     .reduce((s, v) => s + Number(v || 0), 0);
 
-  return c.json({
+  const payload = {
     ok: true,
     data: {
       totalRequests: totalAll,
@@ -228,7 +371,36 @@ app.get('/stats', async (c) => {
         total: Number(yesterdayTotal || 0),
       },
     },
-  });
+  } as const;
+
+  const accept = c.req.header('accept') ?? '';
+  if (accept.includes('text/html')) {
+    const d = payload.data;
+    const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Sentinel — Live Stats</title>
+<style>*{box-sizing:border-box}body{background:#0a0e17;color:#e2e8f0;font-family:system-ui,sans-serif;margin:0;padding:32px}h1{color:#fff;font-size:1.5rem;margin:0 0 4px}p.sub{color:#64748b;font-size:.85rem;margin:0 0 24px}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}.card{background:#111827;border:1px solid #1e293b;border-radius:10px;padding:16px 18px}.val{font-size:2rem;font-weight:900;color:#fff}.lbl{font-size:.7rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-top:4px}.row{display:flex;gap:12px;flex-wrap:wrap}.pill{background:#0f172a;border:1px solid #334155;border-radius:999px;padding:6px 10px;font-size:.8rem;color:#cbd5e1}.footer{margin-top:18px;font-size:.75rem;color:#334155}a{color:#38bdf8}</style></head><body>
+<h1>⬡ Sentinel — Live API Stats</h1>
+<p class="sub">KV-backed counters · for demo proof (not a local mock)</p>
+<div class="grid">
+  <div class="card"><div class="val">${d.totalRequests}</div><div class="lbl">Total requests</div></div>
+  <div class="card"><div class="val">${d.today.total}</div><div class="lbl">Today</div></div>
+  <div class="card"><div class="val">${d.yesterday.total}</div><div class="lbl">Yesterday</div></div>
+  <div class="card"><div class="val">${d.byEndpoint.risk}</div><div class="lbl">Risk endpoint (all-time)</div></div>
+</div>
+<div class="row">
+  <div class="pill">fees: <b>${d.byEndpoint.fees}</b></div>
+  <div class="pill">claim: <b>${d.byEndpoint.claim}</b></div>
+  <div class="pill">feed: <b>${d.byEndpoint.feed}</b></div>
+  <div class="pill">today risk: <b>${d.today.risk}</b></div>
+  <div class="pill">today fees: <b>${d.today.fees}</b></div>
+  <div class="pill">today claim: <b>${d.today.claim}</b></div>
+  <div class="pill">today feed: <b>${d.today.feed}</b></div>
+</div>
+<div class="footer">Raw JSON: <a href="/stats">/stats</a></div>
+</body></html>`;
+    return new Response(html, { headers: { 'content-type': 'text/html;charset=utf-8' } });
+  }
+
+  return c.json(payload);
 });
 
 // ── Pre-Rug Watch (evidence chain) ───────────────────────
@@ -252,6 +424,7 @@ app.get('/v1/watch/catches', async (c) => {
     const fmtTs = (ts: number) => new Date(ts).toISOString().replace('T',' ').slice(0,19) + ' UTC';
     const rows = catches.map((c2) => {
       const leadMs = c2.caughtAt - c2.initialAt;
+      const evUrl = `/v1/watch/catch-evidence/${c2.mint}?caughtAt=${c2.caughtAt}`;
       return `<tr>
         <td><b>${c2.symbol ?? '—'}</b><br><span class="mono">${c2.mint.slice(0,8)}…</span></td>
         <td>${c2.initialScore ?? '—'} → <b>${c2.caughtScore ?? '—'}</b></td>
@@ -259,6 +432,7 @@ app.get('/v1/watch/catches', async (c) => {
         <td>${c2.tierTransition ?? '—'}</td>
         <td class="green"><b>${fmtMs(leadMs)}</b></td>
         <td class="dim">${fmtTs(c2.caughtAt)}</td>
+        <td><a href="${evUrl}">evidence ↗</a></td>
       </tr>`;
     }).join('');
     const s = data.stats;
@@ -272,13 +446,236 @@ app.get('/v1/watch/catches', async (c) => {
   <div class="stat"><div class="stat-val red">${catches.length > 0 ? '−' + Math.round(catches.reduce((a, x) => a + (x.scoreDrop ?? 0), 0) / catches.length) : '—'} pts</div><div class="stat-lbl">Avg score drop</div></div>
   <div class="stat"><div class="stat-val">${s.tokensWatched}</div><div class="stat-lbl">Tokens watched</div></div>
 </div>
-<table><thead><tr><th>Token</th><th>Score</th><th>Drop</th><th>Tier transition</th><th>Lead time</th><th>Flagged at</th></tr></thead><tbody>${rows || '<tr><td colspan=6 style="color:#64748b;padding:20px 12px">No catches yet.</td></tr>'}</tbody></table>
+<table><thead><tr><th>Token</th><th>Score</th><th>Drop</th><th>Tier transition</th><th>Lead time</th><th>Flagged at</th><th>Proof</th></tr></thead><tbody>${rows || '<tr><td colspan=7 style="color:#64748b;padding:20px 12px">No catches yet.</td></tr>'}</tbody></table>
 <div class="footer">Raw JSON: <a href="?format=json">/v1/watch/catches?format=json</a> · <a href="https://sentinel-dashboard-3uy.pages.dev" target="_blank">View dashboard ↗</a></div>
 </body></html>`;
     return new Response(html, { headers: { 'content-type': 'text/html;charset=utf-8' } });
   }
 
   return c.json({ ok: true, data });
+});
+
+// ── Demo Viewer (live, proof-first) ──────────────────────
+
+function renderStatsHtml(payload: {
+  ok: true;
+  data: {
+    totalRequests: number;
+    byEndpoint: { risk: number; fees: number; claim: number; feed: number };
+    today: { date: string; total: number; risk: number; fees: number; claim: number; feed: number };
+    yesterday: { date: string; total: number };
+  };
+}): string {
+  const d = payload.data;
+  return `<section class="panel">
+    <div class="panel-head">
+      <h2>Live API stats</h2>
+      <p>KV-backed counters · real usage proof</p>
+    </div>
+    <div class="grid4">
+      <div class="card"><div class="val">${d.totalRequests}</div><div class="lbl">Total requests</div></div>
+      <div class="card"><div class="val">${d.today.total}</div><div class="lbl">Today</div></div>
+      <div class="card"><div class="val">${d.yesterday.total}</div><div class="lbl">Yesterday</div></div>
+      <div class="card"><div class="val">${d.byEndpoint.risk}</div><div class="lbl">Risk (all-time)</div></div>
+    </div>
+    <div class="row">
+      <span class="pill">fees: <b>${d.byEndpoint.fees}</b></span>
+      <span class="pill">claim: <b>${d.byEndpoint.claim}</b></span>
+      <span class="pill">feed: <b>${d.byEndpoint.feed}</b></span>
+      <span class="pill">today risk: <b>${d.today.risk}</b></span>
+      <span class="pill">today fees: <b>${d.today.fees}</b></span>
+      <span class="pill">today claim: <b>${d.today.claim}</b></span>
+      <span class="pill">today feed: <b>${d.today.feed}</b></span>
+    </div>
+  </section>`;
+}
+
+function renderCatchesHtml(catches: any[], stats: any): string {
+  const fmtMs = (ms: number) => ms < 60000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60000)}m`;
+  const fmtTs = (ts: number) => new Date(ts).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  const rows = catches.map((c2) => {
+    const leadMs = (c2.caughtAt ?? 0) - (c2.initialAt ?? 0);
+    const evUrl = `/v1/watch/catch-evidence/${c2.mint}?caughtAt=${c2.caughtAt}`;
+    return `<tr>
+      <td><b>${c2.symbol ?? '—'}</b><div class="dim mono">${String(c2.mint ?? '').slice(0, 8)}…</div></td>
+      <td>${c2.initialScore ?? '—'} → <b>${c2.caughtScore ?? '—'}</b></td>
+      <td class="red">−${c2.scoreDrop ?? 0} pts</td>
+      <td>${c2.tierTransition ?? '—'}</td>
+      <td class="green"><b>${leadMs > 0 ? fmtMs(leadMs) : '—'}</b></td>
+      <td class="dim">${c2.caughtAt ? fmtTs(c2.caughtAt) : '—'}</td>
+      <td class="links"><a href="${evUrl}">evidence ↗</a> · <a href="https://sentinel-dashboard-3uy.pages.dev/?risk=${c2.mint}" target="_blank">dash ↗</a></td>
+    </tr>`;
+  }).join('');
+  return `<section class="panel">
+    <div class="panel-head">
+      <h2>Pre-rug evidence chain</h2>
+      <p>Autonomous catches · timestamped · lead time shown</p>
+    </div>
+    <div class="grid4">
+      <div class="card"><div class="val">${stats?.catches ?? 0}</div><div class="lbl">Catches logged</div></div>
+      <div class="card"><div class="val green">${stats?.avgLeadTimeMs ? fmtMs(stats.avgLeadTimeMs) : '—'}</div><div class="lbl">Avg lead time</div></div>
+      <div class="card"><div class="val">${stats?.tokensWatched ?? 0}</div><div class="lbl">Tokens watched</div></div>
+      <div class="card"><div class="val">${stats?.lastRunAt ? fmtTs(stats.lastRunAt) : '—'}</div><div class="lbl">Last run</div></div>
+    </div>
+    <table class="tbl">
+      <thead><tr><th>Token</th><th>Score</th><th>Drop</th><th>Tier</th><th>Lead</th><th>Flagged</th><th>Links</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" style="color:#64748b;padding:16px 12px">No catches yet.</td></tr>'}</tbody>
+    </table>
+  </section>`;
+}
+
+function renderFeedHtml(enriched: TokenFeedItem[]): string {
+  const rows = enriched.slice(0, 20).map((t) => {
+    const score = t.riskScore ?? null;
+    const tier = t.riskTier ?? null;
+    const tierColor =
+      tier === 'safe' ? '#4ade80' :
+      tier === 'caution' ? '#fb923c' :
+      tier === 'danger' ? '#f87171' :
+      '#94a3b8';
+    const dashUrl = `https://sentinel-dashboard-3uy.pages.dev/?risk=${t.mint}`;
+    const bagsUrl = `https://bags.fm/token/${t.mint}`;
+    const fee = typeof (t as any).lifetimeFees === 'number' ? (t as any).lifetimeFees : null;
+    const liq = typeof (t as any).liquidity === 'number' ? (t as any).liquidity : null;
+    return `<tr>
+      <td><b>${t.symbol ?? '—'}</b><div class="dim mono">${t.mint.slice(0, 8)}…</div></td>
+      <td>${fee === null ? '<span class="dim">—</span>' : `$${Math.round(fee).toLocaleString()}`}</td>
+      <td>${liq === null ? '<span class="dim">—</span>' : `$${Math.round(liq).toLocaleString()}`}</td>
+      <td>${score === null ? '<span class="dim">—</span>' : `<b>${score}</b>`}</td>
+      <td><span class="badge" style="border-color:${tierColor};color:${tierColor}">${tier ?? 'unscored'}</span></td>
+      <td class="links"><a href="${dashUrl}" target="_blank">view ↗</a> · <a href="${bagsUrl}" target="_blank">bags ↗</a></td>
+    </tr>`;
+  }).join('');
+  return `<section class="panel">
+    <div class="panel-head">
+      <h2>Bags-native discovery feed</h2>
+      <p>Top tokens by lifetime fees on Bags + cached Sentinel risk</p>
+    </div>
+    <table class="tbl">
+      <thead><tr><th>Token</th><th>Lifetime fees</th><th>Liquidity</th><th>Risk</th><th>Tier</th><th>Links</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" style="color:#64748b;padding:16px 12px">No tokens found.</td></tr>'}</tbody>
+    </table>
+  </section>`;
+}
+
+app.get('/v1/demo', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+
+  const limit = Math.min(Number(c.req.query('limit') ?? 8), 25);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
+  const endpoints = ['risk', 'fees', 'claim', 'feed'] as const;
+
+  const [catches, watchStats, tokens, totalRisk, totalFees, totalClaim, totalFeed, todayTotal, yesterdayTotal, ...dailyEndpoints] =
+    await Promise.all([
+      getRecentCatches(kv, limit),
+      getWatchStats(kv),
+      fetchTopTokens(c.env.BAGS_API_KEY),
+      kv.get('stats:total:risk'),
+      kv.get('stats:total:fees'),
+      kv.get('stats:total:claim'),
+      kv.get('stats:total:feed'),
+      kv.get(`stats:day:${today}:total`),
+      kv.get(`stats:day:${yesterday}:total`),
+      ...endpoints.map((e) => kv.get(`stats:day:${today}:${e}`)),
+    ]);
+
+  const enriched = await enrichFeedWithRisk(tokens, kv);
+  const totalAll = [totalRisk, totalFees, totalClaim, totalFeed].reduce((s, v) => s + Number(v || 0), 0);
+  const statsPayload = {
+    ok: true as const,
+    data: {
+      totalRequests: totalAll,
+      byEndpoint: {
+        risk: Number(totalRisk || 0),
+        fees: Number(totalFees || 0),
+        claim: Number(totalClaim || 0),
+        feed: Number(totalFeed || 0),
+      },
+      today: {
+        date: today,
+        total: Number(todayTotal || 0),
+        risk: Number(dailyEndpoints[0] || 0),
+        fees: Number(dailyEndpoints[1] || 0),
+        claim: Number(dailyEndpoints[2] || 0),
+        feed: Number(dailyEndpoints[3] || 0),
+      },
+      yesterday: {
+        date: yesterday,
+        total: Number(yesterdayTotal || 0),
+      },
+    },
+  };
+
+  const accept = c.req.header('accept') ?? '';
+  if (!accept.includes('text/html')) {
+    return c.json({
+      ok: true,
+      data: {
+        catches,
+        watchStats,
+        feed: enriched.slice(0, 20),
+        stats: statsPayload.data,
+      },
+    });
+  }
+
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Sentinel — Live Demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+*{box-sizing:border-box}body{background:#0a0e17;color:#e2e8f0;font-family:system-ui,sans-serif;margin:0}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 18px 48px}
+h1{margin:0 0 6px;font-size:1.7rem;color:#fff}
+.sub{margin:0 0 18px;color:#64748b;font-size:.92rem}
+.topbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px}
+.chip{background:#0f172a;border:1px solid #334155;border-radius:999px;padding:6px 10px;font-size:.8rem;color:#cbd5e1}
+.chip a{color:#38bdf8;text-decoration:none}
+.chip a:hover{text-decoration:underline}
+.panel{background:#0b1220;border:1px solid #1e293b;border-radius:14px;padding:16px 16px 14px;margin:14px 0}
+.panel-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.panel-head h2{margin:0;color:#fff;font-size:1rem}
+.panel-head p{margin:0;color:#64748b;font-size:.82rem}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+@media (max-width:900px){.grid4{grid-template-columns:repeat(2,1fr)}}
+.card{background:#0a0e17;border:1px solid #1e293b;border-radius:12px;padding:12px 14px}
+.val{font-size:1.6rem;font-weight:900;color:#fff;line-height:1.1}
+.val.green{color:#4ade80}
+.lbl{font-size:.68rem;color:#64748b;text-transform:uppercase;letter-spacing:.08em;margin-top:6px}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+.pill{background:#0f172a;border:1px solid #334155;border-radius:999px;padding:6px 10px;font-size:.8rem;color:#cbd5e1}
+.tbl{width:100%;border-collapse:collapse;font-size:.9rem}
+.tbl th{text-align:left;color:#475569;font-weight:700;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;padding:6px 10px;border-bottom:1px solid #1e293b}
+.tbl td{padding:9px 10px;border-bottom:1px solid #1e293b1f;vertical-align:top}
+.tbl tr:hover td{background:#ffffff08}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+.dim{color:#64748b;font-size:.82rem}
+.red{color:#f87171}
+.green{color:#4ade80}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #334155;background:#0f172a;font-size:.75rem;font-weight:900}
+.links a{color:#38bdf8;text-decoration:none}
+.links a:hover{text-decoration:underline}
+.footer{margin-top:16px;color:#334155;font-size:.78rem}
+</style></head><body>
+<div class="wrap">
+  <h1>⬡ Sentinel — Live Demo</h1>
+  <p class="sub">Proof-first viewer for judges: evidence chain + Bags-native feed + traction — all live</p>
+  <div class="topbar">
+    <span class="chip">Dashboard: <a href="https://sentinel-dashboard-3uy.pages.dev" target="_blank">sentinel-dashboard ↗</a></span>
+    <span class="chip">JSON: <a href="/v1/demo">/v1/demo</a></span>
+    <span class="chip">Catches: <a href="/v1/watch/catches?limit=${limit}">/v1/watch/catches ↗</a></span>
+    <span class="chip">Feed: <a href="/v1/tokens/feed">/v1/tokens/feed ↗</a></span>
+    <span class="chip">Stats: <a href="/stats">/stats ↗</a></span>
+  </div>
+  ${renderCatchesHtml(catches, watchStats ?? { catches: 0, tokensWatched: 0, lastRunAt: 0, avgLeadTimeMs: 0 })}
+  ${renderFeedHtml(enriched)}
+  ${renderStatsHtml(statsPayload)}
+  <div class="footer">This page renders the same live data used by the public endpoints. No mock data.</div>
+</div>
+</body></html>`;
+
+  return new Response(html, { headers: { 'content-type': 'text/html;charset=utf-8' } });
 });
 
 app.get('/v1/watch/memory/:mint', async (c) => {
@@ -291,6 +688,25 @@ app.get('/v1/watch/memory/:mint', async (c) => {
   const memory = await getTokenMemory(kv, mint);
   if (!memory) return c.json({ ok: false, error: 'No memory for this token yet' }, 404);
   return c.json({ ok: true, data: memory });
+});
+
+/**
+ * GET /v1/watch/catch-evidence/:mint?caughtAt=<ms>
+ * Immutable evidence bundle for a pre-rug catch (KV, no TTL).
+ */
+app.get('/v1/watch/catch-evidence/:mint', async (c) => {
+  const mint = c.req.param('mint');
+  if (!SOLANA_ADDR_RE.test(mint)) {
+    return c.json({ ok: false, error: 'Invalid Solana mint address' }, 400);
+  }
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+
+  const caughtAtRaw = c.req.query('caughtAt');
+  const caughtAt = caughtAtRaw ? Number(caughtAtRaw) : undefined;
+  const evidence = await getCatchEvidence(kv, mint, caughtAt);
+  if (!evidence) return c.json({ ok: false, error: 'No evidence bundle for this mint yet' }, 404);
+  return c.json({ ok: true, data: evidence });
 });
 
 // ── Telegram Alert Subscriptions ─────────────────────────
@@ -318,7 +734,12 @@ app.post('/v1/alerts/subscribe', async (c) => {
     return c.json({ ok: false, error: 'Invalid Solana wallet address' }, 400);
   }
   await tgSubscribe(kv, chatId, wallet);
-  return c.json({ ok: true, message: 'Subscribed. You will receive alerts for new pre-rug catches.' });
+  return c.json({
+    ok: true,
+    message: wallet
+      ? 'Subscribed. You will receive alerts for risk events on tokens where you are the creator wallet.'
+      : 'Subscribed. You will receive alerts for new pre-rug catches and high-signal risk events.',
+  });
 });
 
 /**
@@ -348,6 +769,336 @@ app.get('/v1/alerts/subscribers/count', async (c) => {
   if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
   const count = await getSubscriberCount(kv);
   return c.json({ ok: true, data: { count } });
+});
+
+/**
+ * GET /v1/alerts/telegram/bot — public bot identity
+ * Returns the bot username so users can DM it (/start) to enable subscriptions.
+ */
+app.get('/v1/alerts/telegram/bot', async (c) => {
+  if (!c.env.TELEGRAM_BOT_TOKEN) {
+    return c.json({ ok: false, error: 'Telegram bot not configured' }, 500);
+  }
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${c.env.TELEGRAM_BOT_TOKEN}/getMe`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(10_000),
+    });
+    const body = await res.json().catch(() => null) as any;
+    if (!res.ok || !body?.ok || !body?.result?.username) {
+      return c.json({ ok: false, error: 'Failed to fetch bot info' }, 502);
+    }
+    const username = String(body.result.username);
+    const deepLink = `https://t.me/${username}?start=sentinel`;
+    return c.json({ ok: true, data: { username, deepLink } });
+  } catch (e) {
+    return c.json({ ok: false, error: 'Telegram getMe failed' }, 502);
+  }
+});
+
+/**
+ * POST /v1/alerts/telegram/resolve
+ * Body: { username?: string }
+ * Resolve a Telegram private chatId by reading recent bot updates.
+ *
+ * Requirement: the user must have DM'd the bot at least once (e.g. /start)
+ * so that `getUpdates` contains their chat record.
+ */
+app.post('/v1/alerts/telegram/resolve', async (c) => {
+  if (!c.env.TELEGRAM_BOT_TOKEN) {
+    return c.json({ ok: false, error: 'Telegram bot not configured' }, 500);
+  }
+  let body: { username?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: 'Invalid JSON' }, 400);
+  }
+  const username = body.username?.trim() ?? '';
+  const chatId = await resolveTelegramChatId({
+    botToken: c.env.TELEGRAM_BOT_TOKEN,
+    username: username.length >= 2 ? username : undefined,
+  });
+  if (!chatId) {
+    return c.json({
+      ok: false,
+      error: 'Could not resolve chatId. DM the bot first (send /start) then retry.',
+    }, 404);
+  }
+  return c.json({ ok: true, data: { chatId } });
+});
+
+// ── Telegram Bot Commands (Webhook) ───────────────────────
+
+type TgUpdate = {
+  update_id?: number;
+  message?: {
+    message_id?: number;
+    date?: number;
+    text?: string;
+    chat?: { id?: number; type?: string; username?: string; first_name?: string; last_name?: string };
+    from?: { id?: number; username?: string; first_name?: string; last_name?: string };
+  };
+};
+
+function tgHelpMessage(): string {
+  return [
+    '👋 <b>Sentinel bot</b> — proof-first risk checks + watchlists.',
+    '',
+    '<b>Commands</b>',
+    '• <code>/status &lt;mint&gt;</code> — current risk score + tier',
+    '• <code>/why &lt;mint&gt;</code> — explanation for the score (AI if available)',
+    '• <code>/watch &lt;mint&gt;</code> — add to your watchlist',
+    '• <code>/unwatch &lt;mint&gt;</code> — remove from watchlist',
+    '• <code>/list</code> — show your watched mints',
+    '• <code>/report</code> — quick summary (watchlist + recent alerts)',
+    '',
+    'Tip: paste a mint address directly — I will treat it as <code>/status</code>.',
+  ].join('\n');
+}
+
+function normalizeCommand(raw: string): { cmd: string; args: string[] } {
+  const s = raw.trim();
+  if (!s) return { cmd: '', args: [] };
+  const parts = s.split(/\s+/g);
+  let head = parts[0] ?? '';
+  if (head.startsWith('/')) head = head.slice(1);
+  // Telegram supports /cmd@botusername
+  head = head.split('@')[0] ?? head;
+  return { cmd: head.toLowerCase(), args: parts.slice(1) };
+}
+
+function safeMintArg(args: string[]): string | null {
+  const m = (args[0] ?? '').trim();
+  if (!m) return null;
+  return SOLANA_ADDR_RE.test(m) ? m : null;
+}
+
+function formatExplanationForTelegram(expl: any): string {
+  if (!expl) return '<i>No explanation available.</i>';
+  if (typeof expl === 'string') return expl;
+  const why = typeof expl.why === 'string' ? expl.why : null;
+  const pattern = typeof expl.pattern === 'string' ? expl.pattern : null;
+  const action = typeof expl.action === 'string' ? expl.action : null;
+  const confidence = typeof expl.confidence === 'string' ? expl.confidence : null;
+  const lines = [
+    why ? `• <b>Why</b>: ${why}` : null,
+    pattern ? `• <b>Pattern</b>: ${pattern}` : null,
+    action ? `• <b>Action</b>: ${action}` : null,
+    confidence ? `• <b>Confidence</b>: ${String(confidence).toUpperCase()}` : null,
+  ].filter(Boolean) as string[];
+  return lines.length > 0 ? lines.join('\n') : '<i>No explanation available.</i>';
+}
+
+app.post('/v1/telegram/webhook', async (c) => {
+  if (!c.env.TELEGRAM_BOT_TOKEN) {
+    return c.json({ ok: false, error: 'Telegram bot not configured' }, 500);
+  }
+
+  // Optional hardening: if TELEGRAM_WEBHOOK_SECRET is configured, require it.
+  const secret = (c.env.TELEGRAM_WEBHOOK_SECRET ?? '').trim();
+  if (secret) {
+    const headerSecret = (c.req.header('x-telegram-bot-api-secret-token') ?? '').trim();
+    const querySecret = (c.req.query('secret') ?? '').trim();
+    if (headerSecret !== secret && querySecret !== secret) {
+      return c.json({ ok: false, error: 'Unauthorized' }, 401);
+    }
+  }
+
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+
+  const update = (await c.req.json().catch(() => null)) as TgUpdate | null;
+  const msg = update?.message;
+  const chatIdNum = msg?.chat?.id;
+  const text = (msg?.text ?? '').trim();
+  if (!chatIdNum || !text) return c.json({ ok: true });
+
+  const chatId = String(chatIdNum);
+
+  const isMintPaste = SOLANA_ADDR_RE.test(text);
+  const { cmd, args } = isMintPaste ? { cmd: 'status', args: [text] } : normalizeCommand(text);
+
+  const send = async (message: string): Promise<void> => {
+    await sendTelegramMessage({
+      botToken: c.env.TELEGRAM_BOT_TOKEN!,
+      chatId,
+      message,
+      parseMode: 'HTML',
+    });
+  };
+
+  if (!cmd || cmd === 'start' || cmd === 'help') {
+    await send(tgHelpMessage());
+    return c.json({ ok: true });
+  }
+
+  if (cmd === 'watch') {
+    const mint = safeMintArg(args);
+    if (!mint) {
+      await send('Usage: <code>/watch &lt;mint&gt;</code>');
+      return c.json({ ok: true });
+    }
+    const wl = await addWatchMint(kv, chatId, mint);
+    await send([
+      '✅ Added to watchlist.',
+      `Now watching: <b>${wl.mints.length}</b> token(s).`,
+      `<a href="https://sentinel-dashboard-3uy.pages.dev/?risk=${mint}">Open on Sentinel ↗</a>`,
+    ].join('\n'));
+    return c.json({ ok: true });
+  }
+
+  if (cmd === 'unwatch') {
+    const mint = safeMintArg(args);
+    if (!mint) {
+      await send('Usage: <code>/unwatch &lt;mint&gt;</code>');
+      return c.json({ ok: true });
+    }
+    const wl = await removeWatchMint(kv, chatId, mint);
+    await send(`🧹 Removed. Watchlist now: <b>${wl.mints.length}</b> token(s).`);
+    return c.json({ ok: true });
+  }
+
+  if (cmd === 'list') {
+    const wl = await getWatchlist(kv, chatId);
+    if (wl.mints.length === 0) {
+      await send('Your watchlist is empty. Add one: <code>/watch &lt;mint&gt;</code>');
+      return c.json({ ok: true });
+    }
+    const lines = wl.mints.slice(0, 25).map((m) => `• <code>${m.slice(0, 4)}…${m.slice(-4)}</code>`);
+    await send([
+      `👁 Watchlist: <b>${wl.mints.length}</b> token(s)`,
+      ...lines,
+      wl.mints.length > 25 ? `… +${wl.mints.length - 25} more` : null,
+    ].filter(Boolean).join('\n'));
+    return c.json({ ok: true });
+  }
+
+  if (cmd === 'status' || cmd === 'why' || cmd === 'report') {
+    const mint = cmd === 'report' ? null : safeMintArg(args);
+    if ((cmd === 'status' || cmd === 'why') && !mint) {
+      await send(`Usage: <code>/${cmd} &lt;mint&gt;</code>`);
+      return c.json({ ok: true });
+    }
+
+    if (cmd === 'report') {
+      const wl = await getWatchlist(kv, chatId);
+      const lines: string[] = [];
+      lines.push('🧾 <b>Sentinel report</b>');
+      lines.push(`👁 Watchlist: <b>${wl.mints.length}</b> token(s)`);
+      if (wl.mints.length > 0) {
+        const sample = wl.mints.slice(0, 5);
+        lines.push('');
+        lines.push('<b>Quick status (sample)</b>');
+        for (const m of sample) {
+          try {
+            const next = await computeRiskScore(m, {
+              HELIUS_API_KEY: c.env.HELIUS_API_KEY,
+              BIRDEYE_API_KEY: c.env.BIRDEYE_API_KEY,
+            });
+            const prev = await getBaseline(kv, chatId, m);
+            lines.push(formatDeltaLine({
+              mint: m,
+              symbol: (next as any).tokenSymbol ?? (next as any).symbol ?? null,
+              prev,
+              nextScore: next.score,
+              nextTier: next.tier,
+            }));
+            await putBaseline(kv, chatId, { mint: m, score: next.score, tier: next.tier, capturedAt: Date.now() });
+          } catch {
+            lines.push(`• <code>${m.slice(0, 4)}…${m.slice(-4)}</code>: <i>failed to score</i>`);
+          }
+        }
+        if (wl.mints.length > 5) lines.push(`… +${wl.mints.length - 5} more`);
+      }
+      lines.push('');
+      lines.push('For a token: <code>/status &lt;mint&gt;</code> · <code>/why &lt;mint&gt;</code>');
+      await send(lines.join('\n'));
+      return c.json({ ok: true });
+    }
+
+    // status/why
+    try {
+      const next = await computeRiskScore(mint!, {
+        HELIUS_API_KEY: c.env.HELIUS_API_KEY,
+        BIRDEYE_API_KEY: c.env.BIRDEYE_API_KEY,
+      });
+      const prev = await getBaseline(kv, chatId, mint!);
+      await putBaseline(kv, chatId, { mint: mint!, score: next.score, tier: next.tier, capturedAt: Date.now() });
+
+      const dashUrl = `https://sentinel-dashboard-3uy.pages.dev/?risk=${mint!}`;
+      const short = `${mint!.slice(0, 4)}…${mint!.slice(-4)}`;
+      const title = (next as any).tokenName ?? (next as any).name ?? null;
+      const sym = (next as any).tokenSymbol ?? (next as any).symbol ?? null;
+
+      if (cmd === 'status') {
+        await send([
+          `📊 <b>Status</b>${sym ? `: <b>${sym}</b>` : ''}`,
+          title ? `🪙 <b>${title}</b> (<code>${short}</code>)` : `🪙 <code>${short}</code>`,
+          formatDeltaLine({ mint: mint!, symbol: sym ?? null, prev, nextScore: next.score, nextTier: next.tier }),
+          '',
+          `<a href="${dashUrl}">Open on Sentinel ↗</a>`,
+        ].join('\n'));
+        return c.json({ ok: true });
+      }
+
+      // why
+      const tokenName = typeof title === 'string' ? title : undefined;
+      const cachedExplain = await kv.get(`explain:${mint!}`, 'json').catch(() => null) as any;
+      let explanationObj: any = cachedExplain?.explanation ?? null;
+      if (!explanationObj) {
+        const exp = await generateRiskExplanation(next as any, { AI: c.env.AI }, tokenName);
+        explanationObj = exp;
+        kv.put(`explain:${mint!}`, JSON.stringify({ mint: mint!, score: next.score, tier: next.tier, explanation: exp }), { expirationTtl: 600 }).catch(() => {});
+      }
+
+      await send([
+        `🧠 <b>Why</b>${sym ? `: <b>${sym}</b>` : ''}`,
+        title ? `🪙 <b>${title}</b> (<code>${short}</code>)` : `🪙 <code>${short}</code>`,
+        `📉 Risk: <b>${next.score}/100</b> (${String(next.tier).toUpperCase()})`,
+        '',
+        formatExplanationForTelegram(explanationObj),
+        '',
+        `<a href="${dashUrl}">Open on Sentinel ↗</a>`,
+      ].join('\n'));
+      return c.json({ ok: true });
+    } catch {
+      await send('❌ Failed to compute risk score. Try again in a few seconds.');
+      return c.json({ ok: true });
+    }
+  }
+
+  await send('Unknown command. Send <code>/help</code>.');
+  return c.json({ ok: true });
+});
+
+/**
+ * GET /v1/alerts/subscription/:chatId — debug helper
+ * Returns the subscription record for a Telegram chat ID.
+ * Intended for demo / verification flows (shows wallet filter + timestamps).
+ */
+app.get('/v1/alerts/subscription/:chatId', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+
+  const chatId = (c.req.param('chatId') ?? '').trim();
+  if (!chatId || !/^\-?\d+$/.test(chatId)) {
+    return c.json({ ok: false, error: 'chatId must be a numeric Telegram chat ID' }, 400);
+  }
+
+  const sub = await getSubscription(kv, chatId);
+  if (!sub) return c.json({ ok: true, data: { subscribed: false } });
+
+  return c.json({
+    ok: true,
+    data: {
+      subscribed: true,
+      chatId: sub.chatId,
+      wallet: sub.wallet ?? null,
+      createdAt: sub.createdAt,
+      updatedAt: sub.updatedAt,
+    },
+  });
 });
 
 // ── Risk Score ───────────────────────────────────────────
@@ -397,7 +1148,8 @@ app.get('/v1/risk/:mint', async (c) => {
   }
 
   // Quota check (only for fresh/uncached scans)
-  const scannerWallet = c.req.header('x-wallet') ?? null;
+  const authedWallet = await resolveAuthedWallet(c);
+  const scannerWallet = authedWallet ?? (c.req.header('x-wallet') ?? null);
   const ip = c.req.header('cf-connecting-ip') ?? 'anon';
   if (kv) {
     const quota = await checkScanQuota(kv, ip, scannerWallet);
@@ -1132,13 +1884,58 @@ app.get('/v1/portfolio/:wallet', async (c) => {
 
 // ── Token Feed ───────────────────────────────────────────
 
+function renderTokenFeedHtml(enriched: TokenFeedItem[]): Response {
+  const rows = enriched.slice(0, 50).map((t) => {
+    const score = t.riskScore ?? null;
+    const tier = t.riskTier ?? null;
+    const tierColor =
+      tier === 'safe' ? '#4ade80' :
+      tier === 'caution' ? '#fb923c' :
+      tier === 'danger' ? '#f87171' :
+      '#94a3b8';
+    const bagsUrl = `https://bags.fm/token/${t.mint}`;
+    const dashUrl = `https://sentinel-dashboard-3uy.pages.dev/?risk=${t.mint}`;
+    const scoreCell = score === null ? '<span class="dim">—</span>' : `<b>${score}</b>`;
+    const fee = typeof (t as any).lifetimeFees === 'number' ? (t as any).lifetimeFees : null;
+    const feeCell = fee === null ? '<span class="dim">—</span>' : `$${Math.round(fee).toLocaleString()}`;
+    const liq = typeof (t as any).liquidity === 'number' ? (t as any).liquidity : null;
+    const liqCell = liq === null ? '<span class="dim">—</span>' : `$${Math.round(liq).toLocaleString()}`;
+    return `<tr>
+          <td><b>${t.symbol ?? '—'}</b><div class="dim mono">${t.mint.slice(0, 8)}…</div></td>
+          <td>${feeCell}</td>
+          <td>${liqCell}</td>
+          <td>${scoreCell}</td>
+          <td><span class="badge" style="border-color:${tierColor};color:${tierColor}">${tier ?? 'unscored'}</span></td>
+          <td class="links"><a href="${dashUrl}" target="_blank">view ↗</a> · <a href="${bagsUrl}" target="_blank">bags ↗</a></td>
+        </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>Sentinel — Bags Feed</title>
+<style>*{box-sizing:border-box}body{background:#0a0e17;color:#e2e8f0;font-family:system-ui,sans-serif;margin:0;padding:32px}h1{color:#fff;font-size:1.5rem;margin:0 0 4px}p.sub{color:#64748b;font-size:.85rem;margin:0 0 24px}table{width:100%;border-collapse:collapse;font-size:.875rem}th{text-align:left;color:#475569;font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;padding:6px 12px;border-bottom:1px solid #1e293b}td{padding:10px 12px;border-bottom:1px solid #1e293b16;vertical-align:top}tr:hover td{background:#ffffff08}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}.dim{color:#64748b;font-size:.8rem}.badge{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #334155;background:#0f172a;font-size:.75rem;font-weight:800}.links a{color:#38bdf8;text-decoration:none}.links a:hover{text-decoration:underline}.footer{margin-top:18px;font-size:.75rem;color:#334155}</style></head><body>
+<h1>⬡ Sentinel — Bags-native Token Feed</h1>
+<p class="sub">Top tokens on Bags (fee-sorted) + cached Sentinel risk scores · demo-friendly view</p>
+<table><thead><tr><th>Token</th><th>Lifetime fees</th><th>Liquidity</th><th>Risk score</th><th>Tier</th><th>Links</th></tr></thead><tbody>
+${rows || '<tr><td colspan="6" style="color:#64748b;padding:20px 12px">No tokens found.</td></tr>'}
+</tbody></table>
+<div class="footer">Force JSON: <a href="/v1/tokens/feed?format=json">/v1/tokens/feed?format=json</a></div>
+</body></html>`;
+
+  return new Response(html, { headers: { 'content-type': 'text/html;charset=utf-8' } });
+}
+
 app.get('/v1/tokens/feed', async (c) => {
   const kv = c.env.SENTINEL_KV;
+  const format = (c.req.query('format') ?? '').toLowerCase();
+  const accept = c.req.header('accept') ?? '';
+  const wantsHtml = format !== 'json' && accept.includes('text/html');
 
   // Check KV cache (30s TTL for feed)
   if (kv) {
     const cached = await kv.get('feed:top-scored', 'json');
     if (cached) {
+      if (wantsHtml) {
+        return renderTokenFeedHtml(cached as TokenFeedItem[]);
+      }
       return c.json({ ok: true, data: cached }, 200, { 'x-cache': 'HIT' });
     }
   }
@@ -1161,6 +1958,8 @@ app.get('/v1/tokens/feed', async (c) => {
         kv.put('feed:top-scored', JSON.stringify(enriched), { expirationTtl: 30 }),
       );
     }
+
+    if (wantsHtml) return renderTokenFeedHtml(enriched);
 
     return c.json({ ok: true, data: enriched }, 200, { 'x-cache': 'MISS' });
   } catch (err) {
@@ -1826,69 +2625,6 @@ app.get('/v1/sent/fee-stats', async (c) => {
   }
 });
 
-// ── Swarm Intelligence ───────────────────────────────────
-
-app.post('/v1/swarm/:wallet', async (c) => {
-  const wallet = c.req.param('wallet');
-  if (!SOLANA_ADDR_RE.test(wallet)) {
-    return c.json({ ok: false, error: 'Invalid Solana wallet address' }, 400);
-  }
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ ok: false, error: 'Swarm not configured — ANTHROPIC_API_KEY missing' }, 503);
-  }
-  try {
-    const result = await runSwarmCycle(wallet, c.env);
-    return c.json({ ok: true, data: result });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Swarm cycle failed';
-    console.error('Swarm cycle error:', err);
-    return c.json({ ok: false, error: msg }, 500);
-  }
-});
-
-app.get('/v1/swarm/:wallet', async (c) => {
-  const wallet = c.req.param('wallet');
-  if (!SOLANA_ADDR_RE.test(wallet)) {
-    return c.json({ ok: false, error: 'Invalid Solana wallet address' }, 400);
-  }
-  const state = await getSwarmState(wallet, c.env);
-  return c.json({ ok: true, data: state });
-});
-
-// ── Token Swarm ──────────────────────────────────────────
-
-app.post('/v1/swarm/token/:mint', async (c) => {
-  const mint = c.req.param('mint');
-  if (!SOLANA_ADDR_RE.test(mint)) {
-    return c.json({ ok: false, error: 'Invalid Solana mint address' }, 400);
-  }
-  if (!c.env.ANTHROPIC_API_KEY) {
-    return c.json({ ok: false, error: 'Swarm not configured — ANTHROPIC_API_KEY missing' }, 503);
-  }
-  // $SENT gate check
-  if (c.env.HELIUS_API_KEY) {
-    const callerWallet = c.req.header('x-wallet');
-    if (!callerWallet || !SOLANA_ADDR_RE.test(callerWallet)) {
-      return c.json({ ok: false, error: 'Wallet required — connect wallet to use AI Swarm' }, 401);
-    }
-    const gate = await checkTokenGate(callerWallet, c.env.HELIUS_API_KEY, c.env.SENTINEL_KV, c.env.BIRDEYE_API_KEY);
-    if (gate.tier === 'free') {
-      const needed = gate.sentPriceUsd > 0
-        ? `$${USD_HOLDER_MIN} of $SENT (~${Math.ceil(USD_HOLDER_MIN / gate.sentPriceUsd).toLocaleString()} $SENT)`
-        : '1 $SENT';
-      return c.json({ ok: false, error: `Requires $SENT — buy at least ${needed} on Bags to unlock AI Swarm` }, 403);
-    }
-  }
-  try {
-    const result = await runTokenSwarmCycle(mint, c.env);
-    return c.json({ ok: true, data: result });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Token swarm cycle failed';
-    console.error('Token swarm cycle error:', err);
-    return c.json({ ok: false, error: msg }, 500);
-  }
-});
-
 // ── Feed Risk Enrichment ──────────────────────────────────
 
 /** Enrich feed tokens with cached risk scores from KV (no external API calls) */
@@ -2030,24 +2766,142 @@ export default {
 
         // Alert scan — broadcast LP drain alerts to Telegram channel if configured
         runAlertScan(env).then(async (newAlerts) => {
-          if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_ALERT_CHANNEL_ID) return;
-          const drainAlerts = newAlerts.filter(a => a.type === 'lp_drain');
-          for (const alert of drainAlerts) {
-            if (alert.liquidityDropPct === undefined || alert.prevLiquidityUsd === undefined || alert.liquidityUsd === undefined) continue;
-            const msg = buildLpDrainMessage(
-              alert.tokenSymbol,
-              alert.tokenName,
-              alert.mint,
-              alert.prevLiquidityUsd,
-              alert.liquidityUsd,
-              alert.liquidityDropPct,
-              alert.severity === 'critical' ? 'critical' : 'warning',
-              DASHBOARD_URL,
+          if (!env.TELEGRAM_BOT_TOKEN) return;
+          const drainAlerts = newAlerts
+            .filter(a => a.type === 'lp_drain')
+            // Telegram should only get high-signal drains:
+            // - confirmed multi-scan drains OR catastrophic drops that scanner marks as critical
+            // WARNING/unconfirmed drains stay in the API feed/dashboard to avoid spam + false positives.
+            .filter((a) => a.severity === 'critical' && a.confirmed !== false);
+
+          // Mass-drain guard: if ≥3 tokens drain in the same cron cycle it's almost certainly
+          // a Bags API outage (liquidity returned 0 for all), not individual rugs.
+          // Suppress Telegram in this case to avoid false-positive spam.
+          if (drainAlerts.length >= 3) {
+            console.warn(`Mass-drain guard triggered: ${drainAlerts.length} LP drain alerts in one cycle — likely API outage, suppressing Telegram broadcast.`);
+            // Still allow subscriber notifications (they are wallet-filtered), but skip channel spam.
+          }
+
+          // 1) Public channel broadcast (optional)
+          if (env.TELEGRAM_ALERT_CHANNEL_ID && drainAlerts.length < 3) {
+            for (const alert of drainAlerts) {
+              if (alert.liquidityDropPct === undefined || alert.prevLiquidityUsd === undefined || alert.liquidityUsd === undefined) continue;
+              const msg = buildLpDrainMessage(
+                alert.tokenSymbol,
+                alert.tokenName,
+                alert.mint,
+                alert.prevLiquidityUsd,
+                alert.liquidityUsd,
+                alert.liquidityDropPct,
+                alert.severity === 'critical' ? 'critical' : 'warning',
+                DASHBOARD_URL,
+                {
+                  confirmed: alert.confirmed,
+                  riskScore: alert.currentScore,
+                  riskTier: alert.currentTier,
+                  dataConfidence: alert.dataConfidence,
+                  missingSignals: alert.missingSignals,
+                  marketPubkey: alert.marketPubkey,
+                  lpMint: alert.lpMint,
+                  lpLockedPct: alert.lpLockedPct,
+                  lpLockedUsd: alert.lpLockedUsd,
+                },
+              );
+              await broadcastAlert(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_ALERT_CHANNEL_ID, msg)
+                .catch((err) => console.error('LP drain broadcast failed:', err));
+            }
+          }
+
+          // 2) Personal subscribers (wallet-filtered for creators)
+          if (env.SENTINEL_KV) {
+            const { notifySubscribersOfAlert } = await import('./notify/alert-subscriptions');
+            const creatorAlerts = newAlerts.filter((a) => a.type === 'lp_drain' || a.type === 'lp_unlock');
+            await Promise.allSettled(
+              creatorAlerts.map((a) => notifySubscribersOfAlert(env.SENTINEL_KV!, env.TELEGRAM_BOT_TOKEN!, a)),
             );
-            await broadcastAlert(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_ALERT_CHANNEL_ID, msg)
-              .catch((err) => console.error('LP drain broadcast failed:', err));
           }
         }).catch((err) => console.error('Scheduled alert scan failed:', err)),
+
+        // Watchlists — periodic delta scan with dedupe + thresholds
+        (async () => {
+          if (!env.SENTINEL_KV || !env.TELEGRAM_BOT_TOKEN) return;
+
+          const kv = env.SENTINEL_KV;
+          const botToken = env.TELEGRAM_BOT_TOKEN;
+
+          const tierRank = (tier: string): number => {
+            const t = String(tier || '').toLowerCase();
+            if (t === 'safe') return 0;
+            if (t === 'caution') return 1;
+            if (t === 'danger') return 2;
+            if (t === 'rug') return 3;
+            return 99;
+          };
+
+          try {
+            const { listWatchlistChatIds } = await import('./notify/watchlists');
+            const chatIds = (await listWatchlistChatIds(kv)).slice(0, 25);
+            if (chatIds.length === 0) return;
+
+            for (const chatId of chatIds) {
+              const wl = await getWatchlist(kv, chatId);
+              const mints = wl.mints.slice(0, 10);
+              if (mints.length === 0) continue;
+
+              for (const mint of mints) {
+                const prev = await getBaseline(kv, chatId, mint);
+
+                let next: RiskScore | null = null;
+                try {
+                  next = await computeRiskScore(mint, {
+                    HELIUS_API_KEY: env.HELIUS_API_KEY,
+                    BIRDEYE_API_KEY: env.BIRDEYE_API_KEY,
+                  });
+                } catch {
+                  continue;
+                }
+
+                // Always refresh baseline
+                await putBaseline(kv, chatId, { mint, score: next.score, tier: next.tier, capturedAt: Date.now() });
+
+                // First capture: don't notify
+                if (!prev) continue;
+
+                const scoreDrop = prev.score - next.score;
+                const tierWorsened = tierRank(next.tier) > tierRank(prev.tier);
+
+                // Thresholds (high-signal only)
+                const shouldNotify = tierWorsened || scoreDrop >= 10;
+                if (!shouldNotify) continue;
+
+                const dedupKey = `tg:watch:notify:${chatId}:${mint}`;
+                const already = await kv.get(dedupKey);
+                if (already) continue;
+
+                const msg = [
+                  '⚠️ <b>Watchlist delta</b>',
+                  '',
+                  formatDeltaLine({
+                    mint,
+                    symbol: (next as any).tokenSymbol ?? (next as any).symbol ?? null,
+                    prev,
+                    nextScore: next.score,
+                    nextTier: next.tier,
+                  }),
+                  '',
+                  `<a href="${DASHBOARD_URL}?risk=${mint}">Open on Sentinel ↗</a>`,
+                ].join('\n');
+
+                const sent = await sendTelegramMessage({ botToken, chatId, message: msg, parseMode: 'HTML' });
+                if (sent) {
+                  await kv.put(dedupKey, '1', { expirationTtl: 6 * 60 * 60 }); // 6h
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Watchlist scan failed:', err);
+          }
+        })(),
 
         runFeeMonitorScan(env).catch((err) => console.error('Scheduled fee monitor failed:', err)),
       ]),

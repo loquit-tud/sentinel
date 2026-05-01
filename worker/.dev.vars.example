@@ -13,7 +13,5 @@ TELEGRAM_BOT_TOKEN=
 TELEGRAM_ALERT_CHANNEL_ID=
 
 # AI Swarm (optional)
-ANTHROPIC_API_KEY=
-
 # Analytics (disabled by default)
 ENABLE_KV_ANALYTICS=0
