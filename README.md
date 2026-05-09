@@ -180,23 +180,23 @@ We don't ask for trust — we give you reproducible proof.
 
 ### Alerts vs Catches (avoid confusion)
 
-- **Risk Alert Feed** (`GET /v1/alerts/feed`): frequent, day-to-day monitoring events (tier changes, LP unlock/drain, holder spikes).\n
-- **Pre-rug Catches** (`GET /v1/watch/catches`): rare by design — only high-quality events that meet stricter thresholds (meant for “judge-proof” evidence chains).\n
+- **Risk Alert Feed** (`GET /v1/alerts/feed`): frequent, day-to-day monitoring events (tier changes, LP unlock/drain, holder spikes).
+- **Risk deterioration catches** (`GET /v1/watch/catches`): rare by design — only high-quality events that meet stricter thresholds (meant for “judge-proof” evidence chains).
 
 If you only look at “catches”, you may see very few. That’s intentional. Most real-world monitoring produces alerts; catches are the curated subset.
 
 ### How to verify (judge-proof, 2 minutes)
 
-1) **Open the dashboard**: https://sentinel-dashboard-3uy.pages.dev\n
-2) **Verify live API is up**:\n
-   - `GET /health`: https://sentinel-api.apiworkersdev.workers.dev/health\n
-3) **See live alerts (timestamped)**:\n
-   - `GET /v1/alerts/feed?format=json`: https://sentinel-api.apiworkersdev.workers.dev/v1/alerts/feed?format=json\n
-4) **See catches (rare, curated)**:\n
-   - `GET /v1/watch/catches?limit=10`: https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=10\n
-5) **Connect Telegram (creator-first)**:\n
-   - In dashboard, click “Open bot DM …” → send `/start` → “Connect Telegram”.\n
-   - Optional: add **Creator wallet** to filter alerts to your own tokens.\n
+1. **Open the dashboard**: https://sentinel-dashboard-3uy.pages.dev
+2. **Verify live API is up**:
+   - `GET /health`: https://sentinel-api.apiworkersdev.workers.dev/health
+3. **See live alerts (timestamped)**:
+   - `GET /v1/alerts/feed?format=json`: https://sentinel-api.apiworkersdev.workers.dev/v1/alerts/feed?format=json
+4. **See catches (rare, curated)**:
+   - `GET /v1/watch/catches?limit=10`: https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=10
+5. **Connect Telegram (creator-first)**:
+   - In dashboard, click “Open bot DM …” → send `/start` → “Connect Telegram”.
+   - Optional: add **Creator wallet** to filter alerts to your own tokens.
 
 **Live Bags leaderboard scan** (refreshed every 15 min via cron):
 - Top 50 tokens scored every cycle → cached in Workers KV (30 min TTL)
