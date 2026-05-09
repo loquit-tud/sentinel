@@ -61,7 +61,7 @@ export function getAppStoreInfo(): AppStoreInfo {
       'Telegram Alerts (risk + fee + volume)',
       '$SENT Token Gating (holder/whale tiers)',
     ],
-    version: '0.13.0',
+    version: '0.14.0',
     updatedAt: new Date().toISOString().slice(0, 10),
   };
 }

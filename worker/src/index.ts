@@ -326,7 +326,7 @@ app.get('/health', (c) => {
   return c.json({
     status: 'ok',
     service: 'sentinel-api',
-    version: '0.13.0',
+    version: '0.14.0',
     pillars: ['risk-scoring-engine', 'wallet-xray'],
     features: ['autoclaim', 'alert-feed', 'creator-reputation', 'token-gating', 'fee-analytics', 'social-sharing'],
     bagsNative: true,
