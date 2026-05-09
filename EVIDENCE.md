@@ -106,7 +106,7 @@ Analytics are written to Workers KV (`ENABLE_KV_ANALYTICS=1`) with 30-day TTL pe
 
 ---
 
-## 5. Live pre-rug catch — verified on-chain
+## 5. Live risk catch — verified on-chain
 
 > This is the system catching a real token collapse in production. Not a demo. Not a backtest.
 
@@ -118,7 +118,7 @@ Analytics are written to Workers KV (`ENABLE_KV_ANALYTICS=1`) with 30-day TTL pe
 |---|---|
 | First seen (score 65, caution) | Unix `1776801667255` ms (Apr 22 2026 ~02:01 UTC) |
 | Flagged (score 35, danger) | Unix `1776803570712` ms (Apr 22 2026 ~02:32 UTC) |
-| Lead time | **32 minutes** before broader market detection |
+| Baseline age | **32 minutes** from prior safe snapshot to alert |
 | Score drop | 65 → 35 (-30 pts) |
 | Tier transition | `caution → danger` |
 | Trigger | `tier_crash` |
@@ -147,7 +147,7 @@ The cron runs every 15 minutes via `wrangler.toml` `triggers.crons = ["*/15 * * 
 | Claim | Proof |
 |---|---|
 | 8-signal risk engine | [worker/src/risk/engine.ts](worker/src/risk/engine.ts) + 102 unit tests in `worker/test/` |
-| **32-min avg lead time on live catch** | Section 5 above — `jkGKKj3Min…BAGS` mint, Apr 22 2026 |
+| **32-min baseline-to-alert window on live catch** | Section 5 above — `jkGKKj3Min…BAGS` mint, Apr 22 2026 |
 | Cron scanner every 15 min | [wrangler.toml](worker/wrangler.toml) `triggers.crons = ["*/15 * * * *"]` |
 | Multi-source data (no single point of failure) | 4 sources (RugCheck, Helius, Birdeye, Bags) in parallel `Promise.all` |
 | $SENT launched on Bags | [bags.fm/token/Az1LWL…](https://bags.fm/token/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS) |

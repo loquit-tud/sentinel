@@ -9,36 +9,39 @@
 
 ---
 
-**Sentinel is the agent that sleeps for you — and wakes you up before the collapse.**
+**Sentinel is the Bags risk agent that watches continuously, records evidence, and verifies outcomes after alerts.**
 
 ---
 
 ### The problem
 
-On Bags, a token can go from 60 to 20 in under an hour. By the time you check your portfolio, the LP is already gone. Every existing tool gives you a score when you ask for one. None of them watch continuously and tell you when to act.
+On Bags, a token can deteriorate from a safe-looking baseline to severe risk in under an hour. By the time you manually check your portfolio, liquidity may already be drained. Most tools give you a score when you ask for one. Sentinel watches continuously and writes an audit trail when risk changes materially.
 
-We got rugged on Bags. Not by an obvious scam — by a token that looked fine. LP was unlocked, mint authority was still active, top wallet held 18%. All visible on-chain. None of it surfaced until after the collapse.
+We got rugged on Bags. Not by an obvious scam — by a token that looked fine. LP was unlocked, mint authority was still active, top wallet held 18%. All visible on-chain. The problem was not missing data; the problem was that nobody was continuously watching and preserving evidence.
 
-The signal was there 40 minutes early. Nobody was watching.
+Sentinel exists to turn those visible changes into timestamped alerts, public evidence bundles, and post-alert outcome records.
 
 ---
 
 ### What Sentinel does differently
 
-Sentinel is not a dashboard. It's an autonomous agent running on Cloudflare Workers cron every 15 minutes. It scores the top 100 Bags tokens against 8 on-chain signals (RugCheck, Helius DAS, Birdeye), compares each score to a baseline snapshot, and decides what to do — watch quietly, rescan in 2 minutes, log the event, broadcast to Telegram, or escalate. The decision is made by an LLM policy engine with a calibrated heuristic fallback. You don't open a dashboard. You get a message before it matters.
+Sentinel is not just a dashboard. It is an autonomous agent running on Cloudflare Workers cron every 15 minutes. It scores the top Bags tokens against 8 on-chain signals (RugCheck, Helius DAS, Birdeye, Bags data), compares each score to a baseline snapshot, and decides what to do: watch quietly, rescan, log the event, broadcast to Telegram, or escalate. The decision is made by an LLM policy engine with a calibrated heuristic fallback.
+
+The important distinction: Sentinel does not claim to forecast collapses. It detects risk deterioration from a prior baseline, records the evidence at alert time, and verifies the outcome after the alert through public endpoints.
 
 ---
 
 ### Evidence — verify live
 
-On April 23, 2026, the agent flagged $BAG 32 minutes before its price collapsed.
+On April 23, 2026, the agent flagged $BAG 32 minutes after the prior safe baseline snapshot.
 
-Score dropped from 65 to 35. The baseline snapshot was taken at Unix timestamp 1776801667255. The catch was logged at 1776803570712. The difference is 32 minutes. The price moved after.
+Score dropped from 65 to 35. The baseline snapshot was taken at Unix timestamp 1776801667255. The catch was logged at 1776803570712. The difference is 32 minutes. The post-alert outcome is verified separately by the public evidence endpoints.
 
 This was not triggered manually. It was logged by the scheduled cron agent on a routine 15-minute scan.
 
 You can verify this right now:
 - Catches log (live, JSON): https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches
+- Outcome tracker (live): https://sentinel-api.apiworkersdev.workers.dev/v1/watch/accuracy
 - Telegram channel (auto-posted by the agent, no human): https://t.me/SentinelRiskAlerts
 - Raw score for any token: https://sentinel-api.apiworkersdev.workers.dev/v1/risk/<mint>
 
@@ -48,9 +51,9 @@ Everything on this page is reproducible from public on-chain data. EVIDENCE.md i
 
 ### How Sentinel uses Bags
 
-Sentinel is built specifically for Bags — it would not work anywhere else.
+Sentinel is built specifically for Bags.
 
-The token feed, price/volume data, creator wallet lookups, fee share stats, and partner API are all consumed from Bags. The scoring engine uses the Bags creator reputation signal as one of its 8 factors. The $SENT token was launched on Bags and gates premium tiers: holders get priority alerts and deeper scans via Helius. The Bags Partner API is integrated: Sentinel is a registered Bags partner (on-chain registration TX: 2RVRTcGEkzsepjga18MX9bsdSqcRS9cn9vrVSvV5fv6vbQPkk3mcB8AXocs4zwUNx5FQkMUgL8C6gFHdgRcTD8Ym).
+The token feed, price/volume data, creator wallet lookups, fee share stats, and partner API are all consumed from Bags-related surfaces. The scoring engine uses creator behavior as one of its risk inputs. The $SENT token was launched on Bags and gates premium tiers: holders get priority alerts and deeper scans via Helius. The Bags Partner API is integrated: Sentinel is a registered Bags partner (on-chain registration TX: 2RVRTcGEkzsepjga18MX9bsdSqcRS9cn9vrVSvV5fv6vbQPkk3mcB8AXocs4zwUNx5FQkMUgL8C6gFHdgRcTD8Ym).
 
 Creators can filter Telegram alerts by their own wallet — they only receive alerts on tokens they launched. This is a Bags-native use case that doesn't exist anywhere else.
 
@@ -58,7 +61,7 @@ Creators can filter Telegram alerts by their own wallet — they only receive al
 
 ### What we shipped
 
-The agent loop has been running since April. 102 unit tests on the scoring engine. The codebase has gone through 4 rounds of page pruning — 11 pages removed because they weren't Bags-native enough to earn their place. What's left works.
+The agent loop has been running since April. The worker exposes public evidence endpoints, a post-alert outcome tracker, Telegram alerting, token risk scoring, creator trust scoring, and Bags partner/fee surfaces. The codebase has gone through 4 rounds of page pruning — 11 pages removed because they were not Bags-native enough to earn their place. What's left is the trust layer we want judges to verify directly.
 
 Stack: TypeScript 5.8, Cloudflare Workers (Hono + Durable Objects + KV + AI), React 18, Solana/Helius for holder distribution, Birdeye for market data, RugCheck for on-chain security signals.
 
@@ -66,7 +69,7 @@ Stack: TypeScript 5.8, Cloudflare Workers (Hono + Durable Objects + KV + AI), Re
 
 ### What's next
 
-Sentinel's agent loop is the primitive. The next layer is creator early warning: detect when your own token is entering distribution phase before your community notices. Then buyer-side: personal watchlists with configurable alert thresholds so traders set their own risk tolerance. Both of these are Bags-native surfaces that no other tool is building.
+Sentinel's agent loop is the primitive. The next layer is creator early warning: alert creators when their own token is entering a high-risk distribution phase, with evidence they can share with their community. Then buyer-side: personal watchlists with configurable alert thresholds so traders set their own risk tolerance. The longer-term goal is to make Sentinel a trust API that wallets, launchpads, indexes, dashboards, and Telegram communities can consume.
 
 ---
 
@@ -79,3 +82,4 @@ Sentinel's agent loop is the primitive. The next layer is creator early warning:
 - $SENT: https://bags.fm/token/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS
 - Evidence: https://github.com/loquit-doru/sentinel/blob/master/EVIDENCE.md
 - Catches (live): https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches
+- Outcomes (live): https://sentinel-api.apiworkersdev.workers.dev/v1/watch/accuracy

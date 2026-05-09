@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { RiskScore, RiskBreakdown, TokenPhase, BuyDecision, BuyVerdict } from '../../../shared/types';
 import { ScoreGauge, TierBadge, BreakdownBar } from '../components/RiskDisplay';
-import { fetchRiskScore, getShareCardUrl, buildTweetUrl, getSharePageUrl } from '../api';
+import { SENTINEL_API_ORIGIN, fetchRiskScore, getShareCardUrl, buildTweetUrl, getSharePageUrl } from '../api';
 
 const BREAKDOWN_LABELS: Record<keyof RiskBreakdown, { label: string; icon: string }> = {
   honeypot: { label: 'Honeypot Safety', icon: '🍯' },
@@ -74,17 +74,17 @@ function computeBuyDecision(
 
   let worstCase: string;
   if (pumpSignal?.phase === 'collapse') {
-    worstCase = 'Active exit event detected. −80% possible within 30 min.';
+    worstCase = 'Illustrative stress scenario (not a price prediction): fast liquidity drain can produce large drawdowns quickly.';
   } else if (pumpSignal?.phase === 'distribution') {
-    worstCase = 'Smart money exiting now. −50% likely within 1–2h.';
+    worstCase = 'Illustrative stress scenario (not a price prediction): distribution phases often precede volatile, two-sided price action.';
   } else if (tier === 'rug') {
-    worstCase = 'Matches confirmed rug pattern. Expect −90%+ within minutes.';
+    worstCase = 'Illustrative stress scenario (not a price prediction): critical structural flags imply extreme tail risk if you enter.';
   } else if (tier === 'danger') {
-    worstCase = 'Based on 47 similar patterns: avg −72%, median crash in 18 min.';
+    worstCase = 'Illustrative stress scenario (not a price prediction): multiple red flags imply elevated tail risk — size down or skip.';
   } else if (tier === 'caution') {
-    worstCase = 'If risk materializes: −40% typical. Similar patterns resolved in ~2h.';
+    worstCase = 'Illustrative stress scenario (not a price prediction): mixed signals — expect wider swings than a “clean” token.';
   } else {
-    worstCase = 'Low structural risk. Standard market volatility (±15%) applies.';
+    worstCase = 'Lower structural risk in this model — still subject to normal market volatility.';
   }
 
   return { verdict, confidence, reasons, worstCase };
@@ -150,8 +150,11 @@ function BuyGuardCard({ decision }: { decision: BuyDecision }) {
         ))}
       </div>
       <div className="mt-4 pt-4 border-t border-white/[0.06]">
-        <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-1.5">Worst-case if ignored</p>
+        <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-1.5">Stress scenario (illustrative)</p>
         <p className="text-xs text-slate-400 italic">{decision.worstCase}</p>
+        <p className="text-[10px] text-slate-600 mt-2">
+          Not financial advice. This card summarizes model inputs — it does not predict price paths.
+        </p>
       </div>
     </div>
   );
@@ -160,8 +163,8 @@ function BuyGuardCard({ decision }: { decision: BuyDecision }) {
 const TIER_DESCRIPTIONS: Record<string, { title: string; desc: string }> = {
   safe: { title: 'Looks Safe', desc: 'Strong safety signals across the board. Standard caution still applies.' },
   caution: { title: 'Proceed with Caution', desc: 'Some risk factors detected. Do your own research before trading.' },
-  danger: { title: 'High Risk', desc: 'Multiple red flags identified. Significant chance of loss.' },
-  rug: { title: 'Likely Scam', desc: 'Critical risk indicators. Extremely high probability of rug pull.' },
+  danger: { title: 'High Risk', desc: 'Multiple red flags identified. Elevated chance of severe adverse outcomes.' },
+  rug: { title: 'Critical Risk', desc: 'Critical structural indicators. Treat as extremely unsafe for most traders.' },
 };
 
 const PHASE_CONFIG: Partial<Record<TokenPhase, { label: string; color: string; bg: string; border: string; icon: string; description: string }>> = {
@@ -211,7 +214,7 @@ function PumpIntelligenceCard({ signal }: { signal: NonNullable<RiskScore['pumpS
   const phase = PHASE_CONFIG[signal.phase] ?? PHASE_CONFIG.uncertain!;
 
   return (
-    <div className="bg-sentinel-surface border border-sentinel-border rounded-xl p-6 animate-fade-in">
+    <div className="rounded-2xl border border-white/[0.08] bg-slate-950/35 backdrop-blur-md shadow-[0_0_0_1px_rgba(255,255,255,0.03)] p-6 animate-fade-in">
       <div className="flex items-center justify-between mb-5">
         <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">⚡ Pump Intelligence</h3>
         <span className="text-[10px] text-gray-600">confidence {signal.confidence}%</span>
@@ -275,8 +278,13 @@ export function RiskDetailPage({ mint, onBack, connectedWallet }: { mint: string
 
   const shortMint = `${mint.slice(0, 6)}...${mint.slice(-4)}`;
 
+  const buyDecision = useMemo(() => {
+    if (!score) return null;
+    return computeBuyDecision(score.score, score.tier, score.breakdown, score.pumpSignal);
+  }, [score]);
+
   return (
-    <div className="max-w-2xl mx-auto space-y-6 animate-fade-in">
+    <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       {/* Navigation bar */}
       <div className="flex items-center justify-between">
         <button
@@ -294,6 +302,37 @@ export function RiskDetailPage({ mint, onBack, connectedWallet }: { mint: string
           <code className="truncate max-w-[140px] sm:max-w-none">{shortMint}</code>
           <span className="text-[10px]">{copied ? '✓' : '⧉'}</span>
         </button>
+      </div>
+
+      {/* Proof strip */}
+      <div className="rounded-2xl border border-white/[0.08] bg-slate-950/35 backdrop-blur-md shadow-[0_0_0_1px_rgba(255,255,255,0.03)] p-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Verify</div>
+            <div className="text-sm font-semibold text-white">Public HTML + JSON endpoints</div>
+            <div className="text-xs text-slate-500 mt-1">
+              Shareable UI is great — judges can still open the raw endpoints.
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 justify-start sm:justify-end">
+            <a
+              href={`${SENTINEL_API_ORIGIN}/v1/risk/${mint}`}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex items-center justify-center rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-500/10 hover:border-cyan-500/30 transition-colors"
+            >
+              JSON <span className="ml-1 font-mono text-cyan-300/80">/v1/risk/</span> ↗
+            </a>
+            <a
+              href={`${SENTINEL_API_ORIGIN}/v1/demo`}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex items-center justify-center rounded-xl border border-slate-800/70 bg-slate-950/30 px-3 py-2 text-[11px] font-semibold text-slate-200 hover:border-slate-700 hover:bg-slate-900/40 transition-colors"
+            >
+              Demo <span className="ml-1 font-mono text-slate-400">/v1/demo</span> ↗
+            </a>
+          </div>
+        </div>
       </div>
 
       {/* Loading */}
@@ -337,7 +376,7 @@ export function RiskDetailPage({ mint, onBack, connectedWallet }: { mint: string
       {score && !loading && (
         <div className="space-y-5 animate-fade-in">
           {/* Score hero card */}
-          <div className="bg-sentinel-surface border border-sentinel-border rounded-xl p-6 sm:p-8">
+          <div className="rounded-2xl border border-white/[0.08] bg-slate-950/35 backdrop-blur-md shadow-[0_0_0_1px_rgba(255,255,255,0.03)] p-6 sm:p-8">
             <div className="flex flex-col sm:flex-row items-center gap-6">
               <ScoreGauge score={score.score} tier={score.tier} size={150} />
               <div className="flex-1 text-center sm:text-left space-y-3">
@@ -355,6 +394,8 @@ export function RiskDetailPage({ mint, onBack, connectedWallet }: { mint: string
             </div>
           </div>
 
+          {buyDecision && <BuyGuardCard decision={buyDecision} />}
+
           {/* Missing data confidence banner */}
           {score.missingSignals && score.missingSignals.length > 0 && (
             <div className="bg-yellow-500/8 border border-yellow-500/25 rounded-xl p-3 flex items-start gap-3">
@@ -370,7 +411,7 @@ export function RiskDetailPage({ mint, onBack, connectedWallet }: { mint: string
           )}
 
           {/* Share bar */}
-          <div className="bg-sentinel-surface border border-sentinel-border/60 rounded-xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="rounded-2xl border border-white/[0.08] bg-slate-950/25 backdrop-blur-md p-4 flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500">Share this score:</span>
             </div>
@@ -405,7 +446,7 @@ export function RiskDetailPage({ mint, onBack, connectedWallet }: { mint: string
           </div>
 
           {/* Breakdown card */}
-          <div className="bg-sentinel-surface border border-sentinel-border rounded-xl p-6">
+          <div className="rounded-2xl border border-white/[0.08] bg-slate-950/25 backdrop-blur-md p-6">
             <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-5">Risk Breakdown</h3>
             <div className="space-y-4">
               {(Object.keys(BREAKDOWN_LABELS) as (keyof RiskBreakdown)[]).map((key, i) => (

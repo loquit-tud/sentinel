@@ -21,7 +21,7 @@ type View =
   | { page: 'landing' }
   | { page: 'feed' }
   | { page: 'risk'; mint: string }
-  | { page: 'xray' }
+  | { page: 'xray'; initialWallet?: string }
   | { page: 'alerts' }
   | { page: 'creator'; wallet: string }
   | { page: 'claim'; claimId: string }
@@ -57,12 +57,15 @@ function NavTab({ active, onClick, children }: { active: boolean; onClick: () =>
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all whitespace-nowrap ${
+      className={`relative px-4 py-2 text-[13px] font-semibold rounded-xl transition-all duration-150 whitespace-nowrap ${
         active
-          ? 'bg-sentinel-accent/15 text-sentinel-accent border border-sentinel-accent/25'
-          : 'text-gray-500 hover:text-gray-300 hover:bg-white/5 border border-transparent'
+          ? 'text-cyan-300 bg-cyan-500/10 shadow-[0_0_0_1px_rgba(6,182,212,0.25),0_0_12px_rgba(6,182,212,0.08)]'
+          : 'text-slate-500 hover:text-slate-300 hover:bg-white/[0.05]'
       }`}
     >
+      {active && (
+        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-px bg-cyan-400 rounded-full" />
+      )}
       {children}
     </button>
   );
@@ -95,6 +98,8 @@ export function App() {
     if (claimId && claimId.length >= 10) return { page: 'claim', claimId };
     const risk = params.get('risk');
     if (risk && risk.length >= 32) return { page: 'risk', mint: risk };
+    const xray = params.get('xray');
+    if (xray && xray.length >= 32) return { page: 'xray', initialWallet: xray };
     return { page: 'landing' };
   });
   const [tokens, setTokens] = useState<TokenFeedItem[]>([]);
@@ -222,7 +227,7 @@ export function App() {
   return (
     <div className="min-h-screen flex flex-col">
       {/* Header */}
-      <header className="border-b border-sentinel-border/50 px-4 sm:px-6 py-3 flex items-center justify-between backdrop-blur-md bg-sentinel-bg/90 sticky top-0 z-20">
+      <header className="border-b border-slate-800/60 px-4 sm:px-6 py-3 flex items-center justify-between backdrop-blur-xl bg-[#050810]/85 sticky top-0 z-20 shadow-[0_1px_0_rgba(255,255,255,0.04)]">
         <button onClick={goFeed} className="flex items-center gap-2 hover:opacity-90 transition-opacity group shrink-0">
           <SentinelLogo size={28} />
           <h1 className="text-base font-bold leading-tight tracking-tight bg-gradient-to-r from-sentinel-accent via-cyan-300 to-sentinel-accent-2 bg-clip-text text-transparent">Sentinel</h1>
@@ -328,15 +333,15 @@ export function App() {
       )}
 
       {/* Mobile nav */}
-      <div className="md:hidden px-4 py-2 border-b border-sentinel-border/30 bg-sentinel-surface/10 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
+      <div className="md:hidden px-4 py-2 border-b border-slate-800/50 bg-[#070c16]/80 flex items-center gap-1.5 overflow-x-auto scrollbar-hide">
         {ALL_TABS.map(tab => (
           <button
             key={tab.id}
             onClick={tabGoHandlers[tab.id]}
-            className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+            className={`flex-shrink-0 px-3 py-1.5 text-xs font-semibold rounded-xl transition-all duration-150 ${
               activeTab === tab.id
-                ? 'bg-sentinel-accent/15 text-sentinel-accent border border-sentinel-accent/25'
-                : 'text-gray-500 hover:text-gray-300 border border-sentinel-border/40'
+                ? 'bg-cyan-500/10 text-cyan-300 shadow-[0_0_0_1px_rgba(6,182,212,0.25)]'
+                : 'text-slate-500 hover:text-slate-300 border border-slate-800/60 hover:border-slate-700'
             }`}
           >
             {tab.label}
@@ -346,13 +351,13 @@ export function App() {
 
       {/* Search bar */}
       {view.page === 'feed' && (
-        <div className="px-4 sm:px-6 py-4 flex justify-center border-b border-sentinel-border/30 bg-sentinel-surface/10">
+        <div className="px-4 sm:px-6 py-5 flex justify-center border-b border-slate-800/40 bg-gradient-to-b from-[#070c16]/60 to-transparent">
           <SearchBar onSearch={handleSearch} />
         </div>
       )}
 
       {/* Content */}
-      <main className="flex-1 px-4 sm:px-6 py-6 max-w-5xl mx-auto w-full">
+      <main className="flex-1 px-4 sm:px-6 py-6 max-w-6xl mx-auto w-full">
         <ErrorBoundary key={view.page}>
           <Suspense fallback={<PageLoader />}>
             {view.page === 'feed' && (
@@ -367,7 +372,7 @@ export function App() {
               </>
             )}
             {view.page === 'risk'     && <RiskDetailPage mint={view.mint} onBack={goFeed} connectedWallet={connectedWallet} />}
-            {view.page === 'xray'     && <WalletXRayPage onViewToken={handleSearch} connectedWallet={connectedWallet} />}
+            {view.page === 'xray'     && <WalletXRayPage onViewToken={handleSearch} connectedWallet={connectedWallet} initialWallet={view.initialWallet} />}
             {view.page === 'alerts'   && <AlertFeedPage onViewToken={handleSearch} onViewCreator={goCreator} />}
             {view.page === 'creator'  && <CreatorProfilePage wallet={view.wallet} onBack={goAlerts} onViewToken={handleSearch} />}
             {view.page === 'token-launch' && <TokenLaunchPage />}
@@ -376,7 +381,7 @@ export function App() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-sentinel-border/30 px-6 py-4 flex items-center justify-between text-[11px] text-gray-600">
+      <footer className="border-t border-slate-800/40 px-6 py-4 flex items-center justify-between text-[11px] text-slate-600">
         <div className="flex items-center gap-2">
           <SentinelLogo size={14} />
           <span>Sentinel v0.13.0</span>

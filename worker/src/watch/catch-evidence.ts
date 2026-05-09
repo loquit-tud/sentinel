@@ -1,6 +1,7 @@
 import type { PreRugCatch, WatchSnapshot } from './pre-rug-catcher';
 import type { RiskScore } from '../../../shared/types';
 import { fetchRugCheckReport } from '../risk/rugcheck';
+import { recordPredictionOutcomeSeed } from './outcomes';
 
 export interface CatchEvidenceBundle {
   version: 1;
@@ -101,6 +102,13 @@ export async function recordCatchEvidence(params: {
   // Immutable evidence record (no TTL) — judge-proof anchor.
   await kv.put(evidenceKey(caught.mint, caught.caughtAt), JSON.stringify(bundle));
   await kv.put(latestKey(caught.mint), JSON.stringify(bundle));
+  await recordPredictionOutcomeSeed({
+    kv,
+    caught,
+    baseline,
+    riskAtCatch,
+    rugcheckAtCatch: rc,
+  }).catch(() => {});
 }
 
 export async function backfillMissingCatchEvidence(kv: KVNamespace, catches: PreRugCatch[], max = 3): Promise<number> {

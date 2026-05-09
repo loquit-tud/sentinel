@@ -25,6 +25,8 @@ export interface RiskScore {
   missingSignals?: string[];
   /** 0.0–1.0 — how much of the score is based on real data */
   dataConfidence?: number;
+  /** Volume spiked 300%+ in 24h — possible pump-before-dump pattern */
+  volumeVelocitySpike?: boolean;
 }
 
 export function tierFromScore(score: number): RiskTier {
@@ -214,6 +216,10 @@ export interface TokenFeedItem {
   liquidity: number;       // USD — needed for pump scoring
   stats24h: TokenStats24h | null; // raw Bags trading stats
   pumpSignal?: PumpSignal; // computed pump intelligence
+  // Bags PRE_GRAD-only: bonding curve pool address (used by DBC pool monitor for direct on-chain liquidity tracking)
+  dbcPoolKey?: string;
+  // Bags PRE_GRAD-only: full account list from launch tx; used to resolve the WSOL quote vault on first sight
+  accountKeys?: string[];
 }
 
 // ── API Responses ────────────────────────────────────────
@@ -527,7 +533,7 @@ export interface LaunchGuardResult {
   generatedAt: number;
 }
 
-// ── Pre-Rug Simulator ────────────────────────────────────
+// ── Risk Scenario Simulator ──────────────────────────────
 
 export type RugScenario =
   | 'lp_pull'           // LP removed entirely

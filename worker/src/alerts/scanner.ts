@@ -21,6 +21,8 @@ const ALERT_KV_PREFIX = 'alert:';
 const SCORE_KV_PREFIX = 'score:prev:';
 const FEED_KEY = 'alerts:feed';
 const SCAN_META_KEY = 'alerts:scan:meta';
+const CALIBRATION_KEY = 'alerts:calibration';
+const QUALITY_METRICS_KEY = 'alerts:quality:latest';
 
 // Max tokens to scan per run (kept conservative to preserve KV quota)
 const MAX_SCAN_BATCH = 10;
@@ -28,6 +30,13 @@ const MAX_SCAN_BATCH = 10;
 const MAX_ALERTS = 100;
 // Score change threshold to generate alert (absolute points)
 const SCORE_CHANGE_THRESHOLD = 15;
+// Adaptive threshold bounds (periodic drift calibration)
+const SCORE_CHANGE_THRESHOLD_MIN = 10;
+const SCORE_CHANGE_THRESHOLD_MAX = 28;
+// Tier downgrade hysteresis (prevents noisy boundary flips)
+const TIER_HYSTERESIS_POINTS = 5;
+// Cooldown for repeated tier/score alerts per token
+const TIER_ALERT_COOLDOWN_MS = 45 * 60 * 1000;
 // Top holder concentration spike threshold (percentage points)
 const HOLDER_SPIKE_THRESHOLD = 20;
 // LP drain thresholds (% drop in totalMarketLiquidity between scans)
@@ -55,6 +64,57 @@ interface ScanMeta {
   lastScanAt: number;
   scannedTokens: number;
   alertsGenerated: number;
+}
+
+interface AlertCalibration {
+  updatedAt: number;
+  scoreChangeThreshold: number;
+  tierHysteresisPoints: number;
+}
+
+export interface AlertQualityMetrics {
+  lastRunAt: number;
+  scannedTokens: number;
+  emittedAlerts: number;
+  sourceHealthScore: number;
+  nullLiquidityTokens: number;
+  scoreChangeThreshold: number;
+  observedMedianDelta: number;
+  suppressedTierHysteresis: number;
+  suppressedTierCooldown: number;
+  suppressedScoreCooldown: number;
+  suppressedLpDrainOutage: number;
+}
+
+function clamp(n: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, n));
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
+async function shouldEmitWithCooldown(kv: KVNamespace, key: string, cooldownMs: number): Promise<boolean> {
+  const now = Date.now();
+  const prevRaw = await kv.get(key);
+  const prevTs = prevRaw ? Number(prevRaw) : 0;
+  if (Number.isFinite(prevTs) && prevTs > 0 && now - prevTs < cooldownMs) return false;
+  const ttl = Math.max(60, Math.ceil(cooldownMs / 1000) * 2);
+  await kv.put(key, String(now), { expirationTtl: ttl });
+  return true;
+}
+
+function computeAdaptiveScoreThreshold(deltas: number[]): number {
+  if (deltas.length < 5) return SCORE_CHANGE_THRESHOLD;
+  const med = median(deltas);
+  // Conservative multiplier keeps noise low but still catches real moves.
+  const adaptive = Math.round(med * 1.6);
+  return clamp(adaptive, SCORE_CHANGE_THRESHOLD_MIN, SCORE_CHANGE_THRESHOLD_MAX);
 }
 
 function pickPrimaryRugcheckMarket(report: Awaited<ReturnType<typeof fetchRugCheckReport>>): {
@@ -100,6 +160,19 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
   const kv = env.SENTINEL_KV;
   if (!kv) return [];
 
+  const calibrationRaw = await kv.get(CALIBRATION_KEY, 'json').catch(() => null);
+  const calibration = (calibrationRaw as AlertCalibration | null) ?? null;
+  const scoreChangeThreshold = clamp(
+    calibration?.scoreChangeThreshold ?? SCORE_CHANGE_THRESHOLD,
+    SCORE_CHANGE_THRESHOLD_MIN,
+    SCORE_CHANGE_THRESHOLD_MAX,
+  );
+  const tierHysteresisPoints = clamp(
+    calibration?.tierHysteresisPoints ?? TIER_HYSTERESIS_POINTS,
+    3,
+    10,
+  );
+
   // 1. Get top tokens from Bags
   const tokens = await fetchTopTokens(env.BAGS_API_KEY);
   // Deduplicate by mint before slicing — prevents the same token appearing twice
@@ -115,6 +188,11 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
   if (batch.length === 0) return [];
 
   const newAlerts: RiskAlert[] = [];
+  const observedScoreDeltas: number[] = [];
+  let suppressedTierHysteresis = 0;
+  let suppressedTierCooldown = 0;
+  let suppressedScoreCooldown = 0;
+  let suppressedLpDrainOutage = 0;
   // Source health tracking: count tokens with null/zero/invalid liquidity data this cycle
   let nullLiquidityTokens = 0;
 
@@ -131,6 +209,7 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
         // Previous score from KV
         const prevRaw = await kv.get(`${SCORE_KV_PREFIX}${token.mint}`, 'json');
         const prev = prevRaw as PreviousScore | null;
+        if (prev) observedScoreDeltas.push(Math.abs(current.score - prev.score));
 
         // Get RugCheck for creator + LP details
         const rugReport = await fetchRugCheckReport(token.mint);
@@ -142,44 +221,72 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
         // Tier change
         if (prev && prev.tier !== current.tier) {
           const degraded = tierRank(current.tier) < tierRank(prev.tier);
-          newAlerts.push({
-            id: `tier_${token.mint}_${Date.now()}`,
-            mint: token.mint,
-            tokenName: token.name,
-            tokenSymbol: token.symbol,
-            type: 'tier_change',
-            severity: degraded ? (current.tier === 'rug' ? 'critical' : 'warning') : 'info',
-            title: `${token.symbol} moved from ${prev.tier.toUpperCase()} to ${current.tier.toUpperCase()}`,
-            description: degraded
-              ? `Risk score dropped from ${prev.score} to ${current.score}. Review this token immediately.`
-              : `Risk score improved from ${prev.score} to ${current.score}.`,
-            previousScore: prev.score,
-            currentScore: current.score,
-            previousTier: prev.tier,
-            currentTier: current.tier,
-            timestamp: Date.now(),
-            creatorWallet,
-          });
+          const scoreDrop = prev.score - current.score;
+          // Hysteresis for downgrades: require a minimum score move, not just boundary flicker.
+          const hysteresisPassed = !degraded || scoreDrop >= tierHysteresisPoints;
+          if (hysteresisPassed) {
+            const canEmit = await shouldEmitWithCooldown(
+              kv,
+              `${ALERT_KV_PREFIX}cooldown:tier:${token.mint}`,
+              TIER_ALERT_COOLDOWN_MS,
+            );
+            if (canEmit) {
+              newAlerts.push({
+                id: `tier_${token.mint}_${Date.now()}`,
+                mint: token.mint,
+                tokenName: token.name,
+                tokenSymbol: token.symbol,
+                type: 'tier_change',
+                severity: degraded ? (current.tier === 'rug' ? 'critical' : 'warning') : 'info',
+                title: `${token.symbol} moved from ${prev.tier.toUpperCase()} to ${current.tier.toUpperCase()}`,
+                description: degraded
+                  ? `Risk score dropped from ${prev.score} to ${current.score}. Review this token immediately.`
+                  : `Risk score improved from ${prev.score} to ${current.score}.`,
+                previousScore: prev.score,
+                currentScore: current.score,
+                previousTier: prev.tier,
+                currentTier: current.tier,
+                timestamp: Date.now(),
+                creatorWallet,
+              });
+            }
+            else {
+              suppressedTierCooldown++;
+            }
+          }
+          else {
+            suppressedTierHysteresis++;
+          }
         }
         // Significant score change (same tier but big move)
-        else if (prev && Math.abs(current.score - prev.score) >= SCORE_CHANGE_THRESHOLD) {
+        else if (prev && Math.abs(current.score - prev.score) >= scoreChangeThreshold) {
           const degraded = current.score < prev.score;
-          newAlerts.push({
-            id: `score_${token.mint}_${Date.now()}`,
-            mint: token.mint,
-            tokenName: token.name,
-            tokenSymbol: token.symbol,
-            type: 'tier_change',
-            severity: degraded ? 'warning' : 'info',
-            title: `${token.symbol} score ${degraded ? 'dropped' : 'improved'}: ${prev.score} → ${current.score}`,
-            description: `Significant ${degraded ? 'decline' : 'improvement'} in risk score within the same tier (${current.tier}).`,
-            previousScore: prev.score,
-            currentScore: current.score,
-            previousTier: prev.tier,
-            currentTier: current.tier,
-            timestamp: Date.now(),
-            creatorWallet,
-          });
+          const canEmit = await shouldEmitWithCooldown(
+            kv,
+            `${ALERT_KV_PREFIX}cooldown:score:${token.mint}`,
+            TIER_ALERT_COOLDOWN_MS,
+          );
+          if (canEmit) {
+            newAlerts.push({
+              id: `score_${token.mint}_${Date.now()}`,
+              mint: token.mint,
+              tokenName: token.name,
+              tokenSymbol: token.symbol,
+              type: 'tier_change',
+              severity: degraded ? 'warning' : 'info',
+              title: `${token.symbol} score ${degraded ? 'dropped' : 'improved'}: ${prev.score} → ${current.score}`,
+              description: `Significant ${degraded ? 'decline' : 'improvement'} in risk score within the same tier (${current.tier}).`,
+              previousScore: prev.score,
+              currentScore: current.score,
+              previousTier: prev.tier,
+              currentTier: current.tier,
+              timestamp: Date.now(),
+              creatorWallet,
+            });
+          }
+          else {
+            suppressedScoreCooldown++;
+          }
         }
 
         // LP unlock detection
@@ -450,6 +557,7 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
   if (sourceHealthScore < (1 - SOURCE_HEALTH_OUTAGE_THRESHOLD)) {
     const drainCount = newAlerts.filter((a) => a.type === 'lp_drain').length;
     if (drainCount > 0) {
+      suppressedLpDrainOutage += drainCount;
       console.warn(
         `[Sentinel] Source health gate: ${nullLiquidityTokens}/${batch.length} tokens with ` +
         `invalid liquidity data (health=${(sourceHealthScore * 100).toFixed(0)}%) — ` +
@@ -460,6 +568,31 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
       newAlerts.push(...filtered);
     }
   }
+
+  // Periodic calibration: update adaptive score threshold from observed token volatility.
+  // This keeps alert sensitivity stable when market regime changes.
+  const calibratedThreshold = computeAdaptiveScoreThreshold(observedScoreDeltas);
+  const nextCalibration: AlertCalibration = {
+    updatedAt: Date.now(),
+    scoreChangeThreshold: calibratedThreshold,
+    tierHysteresisPoints,
+  };
+  await kv.put(CALIBRATION_KEY, JSON.stringify(nextCalibration), { expirationTtl: 86400 * 7 });
+
+  const quality: AlertQualityMetrics = {
+    lastRunAt: Date.now(),
+    scannedTokens: batch.length,
+    emittedAlerts: newAlerts.length,
+    sourceHealthScore,
+    nullLiquidityTokens,
+    scoreChangeThreshold: calibratedThreshold,
+    observedMedianDelta: Number(median(observedScoreDeltas).toFixed(2)),
+    suppressedTierHysteresis,
+    suppressedTierCooldown,
+    suppressedScoreCooldown,
+    suppressedLpDrainOutage,
+  };
+  await kv.put(QUALITY_METRICS_KEY, JSON.stringify(quality), { expirationTtl: 86400 * 7 });
 
   // 3. Merge new alerts into existing feed (rolling window)
   const existingRaw = await kv.get(FEED_KEY, 'json');
@@ -512,6 +645,20 @@ export async function getAlertFeed(kv: KVNamespace): Promise<{
     alerts,
     scannedTokens: meta.scannedTokens,
     lastScanAt: meta.lastScanAt,
+  };
+}
+
+export async function getAlertScannerDebug(kv: KVNamespace): Promise<{
+  calibration: AlertCalibration | null;
+  quality: AlertQualityMetrics | null;
+}> {
+  const [calibrationRaw, qualityRaw] = await Promise.all([
+    kv.get(CALIBRATION_KEY, 'json').catch(() => null),
+    kv.get(QUALITY_METRICS_KEY, 'json').catch(() => null),
+  ]);
+  return {
+    calibration: (calibrationRaw as AlertCalibration | null) ?? null,
+    quality: (qualityRaw as AlertQualityMetrics | null) ?? null,
   };
 }
 

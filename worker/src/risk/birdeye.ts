@@ -57,6 +57,11 @@ export function analyzeBirdeye(
     ? IMPUTED_MISSING
     : Math.min((vol24h / 10_000) * 100, 100);
 
+  // Volume velocity: detect pump-before-dump pattern
+  // v24hChangePercent > 300% = volume more than 4x vs prior day = suspicious spike
+  const volChangeRaw = overview?.v24hChangePercent ?? null;
+  const volumeVelocityFlag = volChangeRaw !== null && volChangeRaw > 300;
+
   // Top 10 holder concentration from Birdeye (fallback/complement to RugCheck)
   const top10Pct = (security?.top10HolderPercent ?? 0) * 100;
   const holderDistribution = Math.max(0, 100 - top10Pct);
@@ -66,6 +71,7 @@ export function analyzeBirdeye(
     volumeHealth,
     liquidityMissing,
     volumeMissing,
+    volumeVelocityFlag,
     holderDistribution,
     price: overview?.price ?? 0,
     fdv: overview?.fdv ?? 0,

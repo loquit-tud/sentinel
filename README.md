@@ -2,7 +2,7 @@
 
 > **Don't trade blind.**
 
-AI risk intelligence + autonomous pre-rug watcher for [Bags](https://bags.fm) traders & creators.
+AI risk intelligence + autonomous risk deterioration watcher for [Bags](https://bags.fm) traders & creators.
 
 **Built for the [Bags Hackathon](https://bags.fm/hackathon) ($4M funding) — Track: AI Agents · Deadline: June 2, 2026**
 
@@ -22,20 +22,23 @@ AI risk intelligence + autonomous pre-rug watcher for [Bags](https://bags.fm) tr
 # 1. Is the agent running? (169 tokens tracked, scans every 15 min)
 curl https://sentinel-api.apiworkersdev.workers.dev/health
 
-# 2. See the pre-rug catches (timestamped, logged by cron — not manually)
+# 2. See risk deterioration catches (timestamped, logged by cron — not manually)
 curl https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=10
 
-# 3. Score any Bags token in real time
+# 3. Check post-alert outcome verification
+curl https://sentinel-api.apiworkersdev.workers.dev/v1/watch/accuracy?format=json
+
+# 4. Score any Bags token in real time
 curl https://sentinel-api.apiworkersdev.workers.dev/v1/risk/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS
 
-# 4. Open the live dashboard
+# 5. Open the live dashboard
 # → https://sentinel-dashboard-3uy.pages.dev
 
-# 5. Check the Telegram channel (auto-posted by agent, not us)
+# 6. Check the Telegram channel (auto-posted by agent, not us)
 # → https://t.me/SentinelRiskAlerts
 ```
 
-**Key proof**: On April 23, 2026 at `1776803570712` (Unix ms), the autonomous cron agent logged `$BAG` as a pre-rug catch — 32 minutes before the price collapse. Score dropped 65→35. No human triggered this. [Verify →](https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=10)
+**Key proof**: On April 23, 2026 at `1776803570712` (Unix ms), the autonomous cron agent logged `$BAG` as a risk deterioration catch. The prior safe snapshot was 32 minutes earlier, and the score dropped 65→35. No human triggered this. [Verify →](https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=10)
 
 ---
 
@@ -43,23 +46,11 @@ curl https://sentinel-api.apiworkersdev.workers.dev/v1/risk/Az1LWLGFs63XscCQGeZy
 
 We got rugged on Bags. Not by a scam token — by a token that looked fine at the time. LP was unlocked, mint authority was still active, top wallet held 18% — all visible on-chain, none of it surfaced in real time.
 
-The frustrating part: the signal was there 40 minutes before price collapsed. Score would have dropped from ~60 to ~20 if anyone had been watching. Nobody was.
+The frustrating part: the warning signs were visible on-chain, but nobody was continuously watching and writing an audit trail.
 
-So we built the thing that watches. Then we got 20 false alarms in the first hour from cache warm-up artifacts (partial RugCheck data triggering fake tier transitions). We fixed that with a minimum lead-time filter and a self-healing purge on every cron tick. Then we got a real catch: `$BAG`, flagged 32 minutes before collapse. That's when we knew the mechanism worked.
+So we built the thing that watches. Then we got 20 false alarms in the first hour from cache warm-up artifacts (partial RugCheck data triggering fake tier transitions). We fixed that with a minimum baseline-age filter and a self-healing purge on every cron tick. Then we got a real catch: `$BAG`, where the agent recorded a score deterioration 32 minutes after the prior safe snapshot. That's when we knew the mechanism worked.
 
 The project has gone through 4 rounds of page pruning because we kept adding things that looked cool but weren't actually Bags-native. What's left is what earns its place.
-
----
-
-## Screenshots
-
-| Landing — live stats from the agent | Discovery feed — top Bags tokens with risk scores |
-|---|---|
-| ![Landing](docs/screenshots/01-landing.png) | ![Discovery](docs/screenshots/03-feed.png) |
-
-| Risk Alert Feed — tier changes & LP events | Wallet X-Ray — portfolio health scan |
-|---|---|
-| ![Alerts](docs/screenshots/04-alerts.png) | [→ live demo](https://sentinel-dashboard-3uy.pages.dev) |
 
 ---
 
@@ -74,8 +65,8 @@ Every 15 min (Cloudflare cron)
   ├─ Score each token (8 signals: RugCheck + Helius + Birdeye)
   ├─ Compare to previous scores
   │
-  ├─ Score collapsed ≥40pts or tier → danger/rug?
-  │     YES → record catch with timestamp + lead time
+  ├─ Score drops ≥40pts or tier deteriorates to danger/rug?
+  │     YES → record catch with timestamp + baseline age
   │           broadcast to @SentinelRiskAlerts (Telegram channel)
   │           notify personal subscribers
   │
@@ -85,7 +76,8 @@ Every 15 min (Cloudflare cron)
 **Live proof**:
 - Telegram channel: [@SentinelRiskAlerts](https://t.me/SentinelRiskAlerts) — auto-posted by the agent, no human
 - Catch log: [`GET /v1/watch/catches`](https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches) — timestamped evidence chain
-- Recorded catch: **$BAG flagged 32 min before collapse** (score 65→35, initialAt `1776801667255`, caughtAt `1776803570712`)
+- Outcome tracker: [`GET /v1/watch/accuracy`](https://sentinel-api.apiworkersdev.workers.dev/v1/watch/accuracy) — post-alert verification windows
+- Recorded catch: **$BAG flagged 32 min after the prior safe snapshot** (score 65→35, initialAt `1776801667255`, caughtAt `1776803570712`)
 
 This loop runs on Cloudflare Workers cron (`*/15 * * * *`), costs $0/month on the free tier, and has zero single points of failure.
 
@@ -128,7 +120,7 @@ Premium access tiers based on $SENT holdings (via Helius RPC):
 
 #### 6. Autonomous Telegram Alerts
 Two alert layers:
-- **@SentinelRiskAlerts** — public Telegram channel, auto-posted by the cron agent when a pre-rug catch fires
+- **@SentinelRiskAlerts** — public Telegram channel, auto-posted by the cron agent when a risk deterioration catch fires
 - **Personal subscribers** — `POST /v1/alerts/subscribe` with optional wallet → get DM'd for every catch
 - Per-wallet fee monitor: register wallet + Telegram chat ID → get alerted when claimable fees cross threshold
 
@@ -155,10 +147,7 @@ Optional hardening: set `TELEGRAM_WEBHOOK_SECRET` and pass Telegram's `secret_to
 #### 7. Creator Trust Score
 Advanced creator reputation with 8 behavioral signals: token age patterns, serial launcher detection (5+ tokens in 30 days), LP removal tracking, mint authority retention, holder concentration analysis, fee consistency. Weighted scoring with human-readable risk flags and verdict.
 
-#### 8. Pre-Rug Simulator
-"What if?" analysis for 6 rug scenarios: LP Pull, Mint Exploit, Whale Dump, Freeze Attack, Slow Rug, Honeypot Activation. Each with probability, estimated loss %, timeframe, explanation, and mitigations. Overall risk + worst-case identification.
-
-#### 9. $SENT Fee Stats
+#### 8. $SENT Fee Stats
 Live fee-sharing display: 24h volume → 1% Bags fee → 30% distributed to $SENT holders. Per-holder daily earnings estimate. [`GET /v1/sent/fee-stats`](https://sentinel-api.apiworkersdev.workers.dev/v1/sent/fee-stats) — cached 5 min, powered by Birdeye.
 
 ---
@@ -273,7 +262,6 @@ sentinel/
 │       ├── portfolio/scanner.ts → Wallet X-Ray (batch risk)
 │       ├── fees/                → Smart fees + Bags fee integration
 │       ├── trade/swap.ts        → Trade quotes via Bags
-│       ├── swarm/               → 5-agent majority-voting wallet advisor
 │       ├── partner/             → Bags partner REST integration
 │       ├── gate/                → $SENT token gating (Helius RPC)
 │       ├── app-store/           → App store metadata + fee-share config
@@ -291,11 +279,6 @@ sentinel/
 │       ├── CreatorProfilePage.tsx → Creator reputation profile
 │       ├── TokenLaunchPage.tsx  → Token launch
 │       └── ClaimPage.tsx        → Claims management
-├── mcp-server/                  → MCP Server (15 Claude tools)
-│   └── src/
-│       ├── tools.ts             → All 15 tool definitions
-│       ├── client.ts            → API client
-│       └── index.ts             → Server entry point
 └── shared/                      → TypeScript types + constants
 ```
 
@@ -318,13 +301,6 @@ sentinel/
 | POST | `/v1/claims/prepare` | Create pending claim bundle (TTL) |
 | GET | `/v1/claims/:claimId` | Read pending claim bundle |
 | POST | `/v1/claims/:claimId/done` | Mark claim complete |
-
-#### Swarm Intelligence
-| Method | Route | Purpose |
-|--------|-------|---------|
-| POST | `/v1/swarm/:wallet` | Full 5-agent wallet advisory analysis |
-| GET | `/v1/swarm/:wallet` | Get current swarm state for wallet |
-| POST | `/v1/swarm/token/:mint` | Token-focused swarm analysis |
 
 #### Bags-Native Integration
 | Method | Route | Purpose |
@@ -381,7 +357,6 @@ sentinel/
 - **Blockchain**: @solana/web3.js + @bagsfm/bags-sdk v1.3.7
 - **Risk Data**: RugCheck API + Birdeye API + Helius DAS + RPC
 - **Cache**: Cloudflare KV (60s risk, 5min fees, 5min gate)
-- **MCP**: Model Context Protocol — 16 tools for Claude
 - **Analytics**: KV-based tracking (`ENABLE_KV_ANALYTICS=1`)
 
 ---
@@ -399,55 +374,6 @@ Fee-share target configuration:
 
 Access tiers unlock premium features based on $SENT holdings — no subscriptions, just hold the token.
 
----
-
-## Claude Skills (MCP Server)
-
-Sentinel exposes **15 tools** via the [Model Context Protocol](https://modelcontextprotocol.io) for AI-native integration.
-
-### Available Tools
-
-| Tool | Description |
-|------|-------------|
-| `get_risk_score` | Risk score (0-100) for any Solana token |
-| `get_trending_tokens` | Top tokens by lifetime fees on Bags |
-| `get_claimable_fees` | Unclaimed fees for a wallet |
-| `get_smart_fees` | Risk-weighted fee urgency snapshot |
-| `compare_tokens` | Side-by-side risk comparison (2-5 tokens) |
-| `get_wallet_xray` | Portfolio health + flagged holdings |
-| `get_creator_profile` | Creator reputation + rug signals |
-| `get_trade_quote` | Trade quotes via Bags |
-| `run_swarm_analysis` | Full 5-agent wallet advisory analysis |
-| `get_alert_feed` | Recent risk alert catches feed |
-| `get_partner_config` | Bags partner status + fee stats |
-| `check_token_gate` | $SENT holding tier check |
-| `get_app_info` | App store metadata |
-| `get_sent_fee_share` | Token fee-share allocation |
-| `get_service_status` | API health + usage stats |
-
-### Setup in Claude Desktop
-
-Add to your `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "sentinel": {
-      "command": "node",
-      "args": ["C:/path/to/sentinel/mcp-server/dist/index.js"]
-    }
-  }
-}
-```
-
-Example prompts:
-- *"How risky is token DezXAZ...B263?"*
-- *"Run a swarm analysis on this token"*
-- *"Check my wallet X-Ray for flagged tokens"*
-- *"What's my $SENT tier?"*
-
----
-
 ## Bags Integration (native)
 
 Sentinel is built Bags-native — deep integration at every layer:
@@ -457,7 +383,6 @@ Sentinel is built Bags-native — deep integration at every layer:
 - **$SENT on Bags**: Token launched on Bags, fee-share config (40/30/20/10 split)
 - **Token Gating**: $SENT-based premium tiers via Helius RPC balance checks
 - **Risk Engine**: Feeds RugCheck + Birdeye + Helius signals into Bags token context
-- **MCP + Bags**: AI agents can query risk, fees, swarm, and partner data via Claude tools
 - **App Store**: Ready for bags.fm/apply submission with full metadata
 
 ---
@@ -510,9 +435,8 @@ What we shipped for the **Bags Hackathon — AI Agents track**:
 | $SENT token on Bags | ✅ | [`Az1LWL...BAGS`](https://bags.fm/token/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS) |
 | Autonomous AI agent | ✅ | Cron every 15min, zero human input, logs catches |
 | Live product | ✅ | [sentinel-dashboard-3uy.pages.dev](https://sentinel-dashboard-3uy.pages.dev) |
-| Real catch (pre-rug) | ✅ | $BAG flagged 32min before collapse, timestamped |
+| Real risk catch | ✅ | $BAG flagged 32min after the prior safe snapshot, timestamped |
 | Public Telegram channel | ✅ | [@SentinelRiskAlerts](https://t.me/SentinelRiskAlerts) — auto-posted |
-| MCP Server (AI tools) | ✅ | 15 tools for Claude integration |
 | Open source | ✅ | MIT license, this repo |
 | Fee-share wallets | ✅ | 4000/3000/2000/1000 BPS config in `shared/constants.ts` |
 

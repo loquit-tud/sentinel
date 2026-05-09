@@ -23,7 +23,7 @@
  */
 
 import type { TokenFeedItem, RiskScore, RiskTier, RiskBreakdown, TokenPhase, TokenTrend, AgentPolicyDecision, AgentPolicyInput } from '../../../shared/types';
-import { fetchTopTokens } from '../feed/bags';
+import { fetchTopTokens, fetchRecentLaunches } from '../feed/bags';
 import { computeAgentPolicy } from '../agent/policy';
 import { recordCatchEvidence, backfillMissingCatchEvidence } from './catch-evidence';
 
@@ -86,9 +86,9 @@ const SNAP_TTL = 7 * 24 * 60 * 60;      // 7 days
 const CATCH_TTL = 30 * 24 * 60 * 60;    // 30 days
 const INDEX_TTL = CATCH_TTL;
 
-const SCORE_DROP_THRESHOLD = 40;         // ≥40 pts drop = catch
-const TIER_CRASH_MIN_DROP = 15;          // tier_crash only counts if drop ≥15 (avoids cache-warming noise)
-const MIN_LEAD_TIME_MS = 30 * 60 * 1000; // snapshot must be ≥30min old before a catch counts
+const SCORE_DROP_THRESHOLD = 30;         // ≥30 pts drop = catch (relaxed from 40; Bags tokens move fast)
+const TIER_CRASH_MIN_DROP = 10;          // tier_crash only counts if drop ≥10 (was 15; too strict)
+const MIN_LEAD_TIME_MS = 10 * 60 * 1000; // snapshot must be ≥10min old (was 30min; too long for Bags velocity)
 const INDEX_KEY = 'watch:catches:index';
 const STATS_KEY = 'watch:stats';
 const MAX_INDEX_LEN = 100;
@@ -232,8 +232,13 @@ function detectCatch(prev: WatchSnapshot, curr: { score: number; tier: RiskTier 
   const crashedToDanger = currSev >= 2 && prevSev < 2; // transitioned into danger/rug
 
   // Real rug signal: big drop OR tier-crash with meaningful magnitude.
-  const isScoreDrop = drop >= SCORE_DROP_THRESHOLD;
-  const isTierCrash = crashedToDanger && drop >= TIER_CRASH_MIN_DROP;
+  // BOOST: if creator has prior rug history, lower thresholds by 5 points
+  const creatorRiskBoost = breakdown?.creatorReputation === 0 ? 5 : 0;
+  const adjustedScoreThreshold = SCORE_DROP_THRESHOLD - creatorRiskBoost;
+  const adjustedTierThreshold = TIER_CRASH_MIN_DROP - creatorRiskBoost;
+
+  const isScoreDrop = drop >= adjustedScoreThreshold;
+  const isTierCrash = crashedToDanger && drop >= adjustedTierThreshold;
   if (!isScoreDrop && !isTierCrash) return null;
 
   return {
@@ -259,7 +264,7 @@ export async function runPreRugWatch(env: WatchEnv): Promise<number> {
   const kv = env.SENTINEL_KV;
   if (!kv) return 0;
 
-  // Self-heal: purge low-quality catches from index (lead time < MIN_LEAD_TIME_MS
+  // Self-heal: purge low-quality catches from index (baseline age < MIN_LEAD_TIME_MS
   // or drop < TIER_CRASH_MIN_DROP). This removes calibration noise from earlier runs.
   await purgeLowQualityCatches(kv);
 
@@ -273,8 +278,20 @@ export async function runPreRugWatch(env: WatchEnv): Promise<number> {
     // ignore
   }
 
-  const tokens = await fetchTopTokens(env.BAGS_API_KEY);
-  const batch = tokens.slice(0, 100);
+  // Use same combined pool as precompute: recent launches (rug-prone) + top by lifetime fees
+  const [top, recent] = await Promise.all([
+    fetchTopTokens(env.BAGS_API_KEY),
+    fetchRecentLaunches(env.BAGS_API_KEY),
+  ]);
+  const seen = new Set<string>();
+  const batch: typeof top = [];
+  for (const t of [...recent, ...top]) {
+    if (!seen.has(t.mint)) {
+      seen.add(t.mint);
+      batch.push(t);
+      if (batch.length >= 150) break;
+    }
+  }
   let newCatches = 0;
   let snapshotsWritten = 0;
 
@@ -367,7 +384,7 @@ async function addToIndex(kv: KVNamespace, c: PreRugCatch): Promise<void> {
 
 /**
  * Self-healing purge: remove catches that don't meet current quality thresholds.
- * Drops entries where lead time < MIN_LEAD_TIME_MS or drop < TIER_CRASH_MIN_DROP.
+ * Drops entries where baseline age < MIN_LEAD_TIME_MS or drop < TIER_CRASH_MIN_DROP.
  * Also deletes matching `watch:catch:${mint}` keys so those mints can be caught again legitimately.
  */
 async function purgeLowQualityCatches(kv: KVNamespace): Promise<void> {
@@ -381,7 +398,9 @@ async function purgeLowQualityCatches(kv: KVNamespace): Promise<void> {
     const dropOk = c.reason === 'score_drop'
       ? c.scoreDrop >= SCORE_DROP_THRESHOLD
       : c.scoreDrop >= TIER_CRASH_MIN_DROP;
-    if (leadOk && dropOk) {
+    // Stale/corrupt catches from earlier monitor versions: missing or truncated triggerSignals.
+    const signalsOk = Array.isArray(c.triggerSignals) && c.triggerSignals.length >= 2;
+    if (leadOk && dropOk && signalsOk) {
       keep.push(c);
     } else {
       purge.push(c.mint);

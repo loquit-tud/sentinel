@@ -58,7 +58,6 @@ export function getAppStoreInfo(): AppStoreInfo {
       'Risk Scoring Engine (8 weighted signals → 0-100)',
       'Wallet X-Ray (portfolio health + flagged tokens)',
       'Auto Fee Optimizer (smart claim prioritization)',
-      'MCP Server (12 Claude tools)',
       'Telegram Alerts (risk + fee + volume)',
       '$SENT Token Gating (holder/whale tiers)',
     ],

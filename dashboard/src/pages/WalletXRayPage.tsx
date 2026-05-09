@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { fetchWalletXRay, type XRayResult, type XRayToken } from '../api';
+import { SENTINEL_API_ORIGIN, fetchWalletXRay, type XRayResult, type XRayToken } from '../api';
 
 const SOLANA_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
@@ -34,7 +34,7 @@ function healthLabel(score: number): { label: string; sub: string } {
   if (score >= 60) return { label: 'Moderate Exposure',         sub: 'Some risk factors present' };
   if (score >= 40) return { label: 'Fragile Portfolio',         sub: 'Concentrated or manipulation-phase exposure' };
   if (score >= 20) return { label: 'Toxic Exposure',            sub: 'High manipulation or collapse exposure' };
-  return              { label: 'Liquidation-Prone',          sub: 'Critical — exit positions immediately' };
+  return              { label: 'Critical (modeled)',          sub: 'Very high modeled portfolio risk — treat as unacceptable for most traders' };
 }
 
 const PHASE_PILL: Record<string, string> = {
@@ -83,17 +83,29 @@ function TokenRow({ token, onView, isWorst }: { token: XRayToken; onView: (mint:
   );
 }
 
+const DASHBOARD_SHARE_URL = 'https://sentinel-dashboard-3uy.pages.dev';
+
 interface Props {
   onViewToken: (mint: string) => void;
   connectedWallet: string | null;
+  initialWallet?: string;
 }
 
-export function WalletXRayPage({ onViewToken, connectedWallet }: Props) {
+export function WalletXRayPage({ onViewToken, connectedWallet, initialWallet }: Props) {
   const [wallet, setWallet] = useState('');
   const [result, setResult] = useState<XRayResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const autoScannedWallet = useRef<string | null>(null);
+
+  // Auto-fill from initialWallet (URL deep-link) on first mount
+  useEffect(() => {
+    if (initialWallet && !wallet) {
+      setWallet(initialWallet);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Auto-fill when wallet connects and input is empty
   useEffect(() => {
@@ -123,19 +135,30 @@ export function WalletXRayPage({ onViewToken, connectedWallet }: Props) {
     }
   }, [wallet]);
 
-  // Auto-scan once when wallet is auto-filled from connected wallet
+  // Auto-scan once when wallet is auto-filled from connected wallet OR from initialWallet URL param
   useEffect(() => {
+    const effectiveWallet = initialWallet ?? connectedWallet;
     if (
-      connectedWallet &&
-      wallet === connectedWallet &&
+      effectiveWallet &&
+      wallet === effectiveWallet &&
       !result &&
       !loading &&
-      autoScannedWallet.current !== connectedWallet
+      autoScannedWallet.current !== effectiveWallet
     ) {
-      autoScannedWallet.current = connectedWallet;
+      autoScannedWallet.current = effectiveWallet;
       scan();
     }
-  }, [wallet, connectedWallet, result, loading, scan]);
+  }, [wallet, connectedWallet, initialWallet, result, loading, scan]);
+
+  const copyShareLink = useCallback(() => {
+    const trimmed = wallet.trim();
+    if (!SOLANA_ADDR_RE.test(trimmed)) return;
+    const url = `${DASHBOARD_SHARE_URL}?xray=${encodeURIComponent(trimmed)}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }, [wallet]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') scan();
@@ -145,36 +168,70 @@ export function WalletXRayPage({ onViewToken, connectedWallet }: Props) {
   const sorted = result?.holdings.slice().sort((a, b) => (a.score ?? 999) - (b.score ?? 999)) ?? [];
   const maxRiskToken = result?.maxRiskToken ?? null;
 
+  const trimmedWallet = wallet.trim();
+  const portfolioJsonUrl =
+    SOLANA_ADDR_RE.test(trimmedWallet) ? `${SENTINEL_API_ORIGIN}/v1/portfolio/${encodeURIComponent(trimmedWallet)}` : null;
+
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold mb-1">Wallet X-Ray</h2>
-        <p className="text-gray-400 text-sm">
-          Paste any Solana wallet to scan all token holdings for risk.
-        </p>
+      <div className="rounded-2xl border border-white/[0.08] bg-slate-950/35 backdrop-blur-md shadow-[0_0_0_1px_rgba(255,255,255,0.03)] p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Wallet</div>
+            <h2 className="text-2xl font-bold tracking-tight">X-Ray</h2>
+            <p className="text-gray-400 text-sm mt-1">
+              Scan SPL holdings and aggregate risk signals for a wallet (public JSON available).
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 justify-start sm:justify-end">
+            <a
+              href={`${SENTINEL_API_ORIGIN}/v1/demo`}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex items-center justify-center rounded-xl border border-slate-800/70 bg-slate-950/30 px-3 py-2 text-[11px] font-semibold text-slate-200 hover:border-slate-700 hover:bg-slate-900/40 transition-colors"
+            >
+              Proof viewer <span className="ml-1 font-mono text-slate-400">/v1/demo</span> ↗
+            </a>
+            {portfolioJsonUrl && (
+              <a
+                href={portfolioJsonUrl}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex items-center justify-center rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-500/10 hover:border-cyan-500/30 transition-colors"
+              >
+                JSON <span className="ml-1 font-mono text-cyan-300/80">/v1/portfolio/…</span> ↗
+              </a>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Input */}
-      <div className="flex gap-2 mb-6">
-        <input
-          value={wallet}
-          onChange={(e) => setWallet(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={connectedWallet ? 'Using connected wallet...' : 'Solana wallet address...'}
-          className="flex-1 bg-sentinel-surface border border-sentinel-border/50 rounded-lg px-4 py-2.5 text-sm font-mono focus:border-sentinel-accent/50 focus:outline-none placeholder-gray-600"
-        />
-        <button
-          onClick={scan}
-          disabled={loading}
-          className="px-6 py-2.5 rounded-lg bg-sentinel-accent text-sentinel-bg font-medium text-sm hover:bg-sentinel-accent/90 transition-colors disabled:opacity-50"
-        >
-          {loading ? 'Scanning...' : 'Scan'}
-        </button>
+      <div className="rounded-2xl border border-white/[0.08] bg-slate-950/25 backdrop-blur-md shadow-[0_0_0_1px_rgba(255,255,255,0.03)] p-4">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            value={wallet}
+            onChange={(e) => setWallet(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={connectedWallet ? 'Using connected wallet...' : 'Solana wallet address...'}
+            className="flex-1 bg-slate-950/35 border border-white/[0.10] rounded-2xl px-4 py-3 text-sm font-mono shadow-[0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-md focus:border-sentinel-accent/45 focus:outline-none focus:ring-2 focus:ring-sentinel-accent/15 placeholder-gray-600"
+          />
+          <button
+            onClick={scan}
+            disabled={loading}
+            className="sm:w-[140px] px-6 py-3 rounded-2xl bg-gradient-to-r from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300 text-slate-950 font-bold text-sm transition-colors disabled:opacity-50"
+          >
+            {loading ? 'Scanning...' : 'Scan'}
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-600 mt-3">
+          Tip: connect a wallet in the header to auto-fill, or paste any address.
+        </p>
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-sentinel-danger/5 border border-sentinel-danger/20 rounded-lg">
+        <div className="p-3 bg-sentinel-danger/5 border border-sentinel-danger/20 rounded-2xl">
           <p className="text-sm text-sentinel-danger">{error}</p>
         </div>
       )}
@@ -192,7 +249,7 @@ export function WalletXRayPage({ onViewToken, connectedWallet }: Props) {
       {result && !loading && (
         <div className="space-y-6 animate-fade-in">
           {/* Portfolio Health Card */}
-          <div className="bg-sentinel-surface border border-sentinel-border/50 rounded-xl p-6 text-center">
+          <div className="rounded-2xl border border-white/[0.08] bg-slate-950/35 backdrop-blur-md shadow-[0_0_0_1px_rgba(255,255,255,0.03)] p-6 text-center">
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Portfolio Health</p>
             <p className={`text-5xl font-bold ${healthColor(result.portfolioHealth)}`}>
               {result.portfolioHealth}
@@ -207,11 +264,21 @@ export function WalletXRayPage({ onViewToken, connectedWallet }: Props) {
                 {result.flaggedCount} flagged
               </span>
             </div>
+            <button
+              onClick={copyShareLink}
+              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-700 bg-slate-900 hover:border-cyan-500/40 hover:bg-cyan-500/5 text-xs font-semibold text-slate-300 hover:text-cyan-300 transition-colors"
+            >
+              {copied ? (
+                <><span>✓</span> Link copied!</>
+              ) : (
+                <><span>🔗</span> Share X-Ray</>
+              )}
+            </button>
           </div>
 
           {/* Worst asset dominance warning */}
           {maxRiskToken && result.portfolioHealth < 60 && (
-            <div className="p-4 bg-yellow-500/5 border border-yellow-500/20 rounded-xl">
+            <div className="p-4 bg-yellow-500/5 border border-yellow-500/20 rounded-2xl">
               <p className="text-sm font-medium text-yellow-400 mb-1">⚠ Dominant risk source detected</p>
               <p className="text-xs text-gray-400">
                 Token <span className="font-mono text-gray-300">{maxRiskToken.slice(0, 6)}...{maxRiskToken.slice(-4)}</span> contributes the highest weighted risk to your portfolio.
@@ -221,7 +288,7 @@ export function WalletXRayPage({ onViewToken, connectedWallet }: Props) {
 
           {/* Flagged tokens alert */}
           {flagged.length > 0 && (
-            <div className="p-4 bg-sentinel-danger/5 border border-sentinel-danger/20 rounded-xl">
+            <div className="p-4 bg-sentinel-danger/5 border border-sentinel-danger/20 rounded-2xl">
               <p className="text-sm font-medium text-sentinel-danger mb-1">
                 ⚠ {flagged.length} token{flagged.length > 1 ? 's' : ''} flagged as high risk
               </p>

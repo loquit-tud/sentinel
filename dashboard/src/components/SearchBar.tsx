@@ -18,9 +18,9 @@ export function SearchBar({ onSearch }: { onSearch: (mint: string) => void }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="w-full max-w-xl">
+    <form onSubmit={handleSubmit} className="w-full max-w-2xl">
       <div className="relative group">
-        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-sentinel-accent transition-colors pointer-events-none">
+        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-cyan-400 transition-colors duration-200 pointer-events-none">
           <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
             <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
           </svg>
@@ -32,7 +32,7 @@ export function SearchBar({ onSearch }: { onSearch: (mint: string) => void }) {
           onChange={(e) => setValue(e.target.value)}
           placeholder="Paste token mint address…"
           spellCheck={false}
-          className="w-full bg-sentinel-surface border border-sentinel-border rounded-lg pl-10 pr-28 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-sentinel-accent/60 focus:ring-1 focus:ring-sentinel-accent/20 transition-all"
+          className="w-full bg-slate-900/60 border border-slate-700/60 rounded-2xl pl-11 pr-32 py-4 text-sm text-white placeholder-slate-600 shadow-[0_2px_24px_rgba(0,0,0,0.3)] backdrop-blur-md focus:outline-none focus:border-cyan-500/60 focus:ring-2 focus:ring-cyan-500/20 focus:shadow-[0_0_0_2px_rgba(6,182,212,0.15),0_4px_32px_rgba(6,182,212,0.08)] transition-all duration-200"
         />
         {value && (
           <button
@@ -46,7 +46,7 @@ export function SearchBar({ onSearch }: { onSearch: (mint: string) => void }) {
         <button
           type="submit"
           disabled={!value.trim()}
-          className="absolute right-2 top-1/2 -translate-y-1/2 bg-sentinel-accent hover:bg-sentinel-accent-dim disabled:bg-sentinel-accent/30 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-1.5 rounded-md transition-all"
+          className="absolute right-2 top-1/2 -translate-y-1/2 bg-gradient-to-r from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300 disabled:from-slate-700 disabled:to-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-slate-950 text-sm font-bold px-5 py-2.5 rounded-xl shadow-[0_0_16px_rgba(6,182,212,0.25)] hover:shadow-[0_0_24px_rgba(6,182,212,0.4)] disabled:shadow-none transition-all duration-200"
         >
           Scan
         </button>
@@ -56,7 +56,7 @@ export function SearchBar({ onSearch }: { onSearch: (mint: string) => void }) {
         <button
           type="button"
           onClick={() => onSearch(SENT_MINT)}
-          className="text-[11px] text-sentinel-accent/70 hover:text-sentinel-accent border border-sentinel-accent/20 hover:border-sentinel-accent/50 rounded-full px-2.5 py-0.5 transition-colors"
+          className="text-[11px] text-cyan-400/60 hover:text-cyan-300 border border-cyan-500/20 hover:border-cyan-500/50 rounded-full px-2.5 py-0.5 transition-all hover:bg-cyan-500/5"
         >
           $SENT
         </button>

@@ -35,6 +35,74 @@ interface BagsApiResponse {
   response: BagsLeaderboardItem[];
 }
 
+/** Raw Bags API response shape for the token launch feed (recent/active launches) */
+interface BagsLaunchFeedItem {
+  name: string;
+  symbol: string;
+  description: string;
+  image: string;
+  tokenMint: string;
+  status: 'PRE_LAUNCH' | 'PRE_GRAD' | 'MIGRATING' | 'MIGRATED';
+  twitter?: string | null;
+  website?: string | null;
+  // Bonding curve pool key — holds real SOL liquidity for PRE_GRAD tokens
+  dbcPoolKey?: string;
+  dbcConfigKey?: string;
+  launchSignature?: string;
+  accountKeys?: string[];
+}
+
+interface BagsLaunchFeedResponse {
+  success: boolean;
+  response: BagsLaunchFeedItem[];
+}
+
+/**
+ * Fetch recent/active token launches — the volatile pool where rugs happen.
+ * These are PRE_GRAD and MIGRATING tokens (fresh, not yet established).
+ */
+export async function fetchRecentLaunches(apiKey?: string): Promise<TokenFeedItem[]> {
+  const headers: Record<string, string> = {};
+  if (apiKey) headers['x-api-key'] = apiKey;
+
+  const res = await fetch(`${BAGS_API_BASE}/token-launch/feed`, {
+    headers,
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) {
+    console.error(`Bags launch feed API ${res.status}: ${res.statusText}`);
+    return [];
+  }
+
+  const body = await res.json() as BagsLaunchFeedResponse;
+  if (!body.success || !Array.isArray(body.response)) {
+    console.error('Bags launch feed API error or unexpected format');
+    return [];
+  }
+
+  // Focus on tokens that are live but not yet graduated — highest rug risk window
+  const filtered = body.response.filter((item) => item.status === 'PRE_GRAD' || item.status === 'MIGRATING');
+  console.log(`[bags-feed] total=${body.response.length} pre_grad+migrating=${filtered.length}`);
+  return filtered
+    .map((item): TokenFeedItem => ({
+      mint: item.tokenMint,
+      name: item.name,
+      symbol: item.symbol,
+      imageUrl: item.image ?? '',
+      createdAt: 0,
+      volume24h: 0,
+      fdv: 0,
+      priceChangePct24h: 0,
+      riskScore: null,
+      riskTier: null,
+      lifetimeFees: 0,
+      liquidity: 0,
+      stats24h: null,
+      dbcPoolKey: item.dbcPoolKey,
+      accountKeys: item.accountKeys,
+    }));
+}
+
 export async function fetchTopTokens(apiKey?: string): Promise<TokenFeedItem[]> {
   const headers: Record<string, string> = {};
   if (apiKey) headers['x-api-key'] = apiKey;

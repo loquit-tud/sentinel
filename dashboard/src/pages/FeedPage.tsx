@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import type { TokenFeedItem, TokenPhase } from '../../../shared/types';
+import { SENTINEL_API_ORIGIN } from '../api';
 
 type SortField = 'volume' | 'fdv' | 'change' | 'fees' | 'risk';
 type FilterTier = 'all' | 'safe' | 'caution' | 'danger';
@@ -36,10 +37,10 @@ function SortButton({ active, label, onClick }: { active: boolean; label: string
   return (
     <button
       onClick={onClick}
-      className={`px-3 py-1.5 text-xs rounded-md transition-all ${
+      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-150 ${
         active
-          ? 'bg-sentinel-accent/20 text-sentinel-accent border border-sentinel-accent/40'
-          : 'text-gray-500 hover:text-gray-300 border border-transparent'
+          ? 'bg-cyan-500 text-slate-950 shadow-lg'
+          : 'text-slate-500 hover:text-slate-200 bg-slate-800 hover:bg-slate-700'
       }`}
     >
       {label}
@@ -51,14 +52,14 @@ function TokenRow({ token, onSelect, index }: { token: TokenFeedItem; onSelect: 
   return (
     <button
       onClick={() => onSelect(token.mint)}
-      className="w-full flex items-center gap-4 px-4 py-3 hover:bg-white/[0.03] hover:translate-x-0.5 rounded-lg transition-all duration-200 text-left group cursor-pointer animate-fade-in"
+      className="w-full flex items-center gap-4 px-4 py-3.5 hover:bg-slate-800 rounded-lg transition-all duration-150 text-left group cursor-pointer animate-fade-in border-l-4 border-l-transparent hover:border-l-cyan-500"
       style={{ animationDelay: `${index * 20}ms` }}
     >
       {/* Rank */}
       <span className="text-xs text-gray-600 w-5 text-right font-mono">{index + 1}</span>
 
       {/* Icon */}
-      <div className="w-9 h-9 rounded-full bg-sentinel-border flex items-center justify-center shrink-0 overflow-hidden ring-1 ring-sentinel-border group-hover:ring-sentinel-accent/30 transition-all">
+      <div className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center shrink-0 overflow-hidden ring-2 ring-slate-700 group-hover:ring-cyan-500 transition-all">
         {token.imageUrl ? (
           <img src={token.imageUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
         ) : (
@@ -68,20 +69,20 @@ function TokenRow({ token, onSelect, index }: { token: TokenFeedItem; onSelect: 
 
       {/* Name + Symbol */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-slate-100 truncate group-hover:text-sentinel-accent transition-colors">{token.name}</p>
-        <p className="text-xs text-gray-500">${token.symbol}</p>
+        <p className="text-sm font-bold text-white truncate group-hover:text-cyan-300 transition-colors">{token.name}</p>
+        <p className="text-xs text-slate-500 font-mono">${token.symbol}</p>
       </div>
 
       {/* Volume */}
       <div className="text-right hidden sm:block w-20">
-        <p className="text-sm font-medium text-slate-200 tabular-nums">{formatUsd(token.volume24h)}</p>
-        <p className="text-[10px] text-gray-600">vol 24h</p>
+        <p className="text-sm font-medium text-slate-300 tabular-nums">{formatUsd(token.volume24h)}</p>
+        <p className="text-[10px] text-slate-600">vol 24h</p>
       </div>
 
       {/* FDV */}
       <div className="text-right hidden md:block w-20">
-        <p className="text-sm font-medium text-slate-200 tabular-nums">{formatUsd(token.fdv)}</p>
-        <p className="text-[10px] text-gray-600">FDV</p>
+        <p className="text-sm font-medium text-slate-300 tabular-nums">{formatUsd(token.fdv)}</p>
+        <p className="text-[10px] text-slate-600">FDV</p>
       </div>
 
       {/* Change */}
@@ -97,7 +98,7 @@ function TokenRow({ token, onSelect, index }: { token: TokenFeedItem; onSelect: 
         {token.riskTier && token.riskScore !== null ? (
           <RiskCell score={token.riskScore} tier={token.riskTier} />
         ) : (
-          <span className="text-[10px] text-gray-600 px-2 py-1 border border-sentinel-border rounded-full group-hover:border-sentinel-accent/40 group-hover:text-sentinel-accent transition-colors">scan →</span>
+          <span className="text-[10px] text-slate-600 px-2 py-1 border border-slate-800 rounded-full group-hover:border-cyan-500/40 group-hover:text-cyan-400 transition-all">scan →</span>
         )}
       </div>
     </button>
@@ -105,10 +106,10 @@ function TokenRow({ token, onSelect, index }: { token: TokenFeedItem; onSelect: 
 }
 
 const RISK_CELL_COLORS: Record<NonNullable<TokenFeedItem['riskTier']>, { text: string; bg: string; border: string; dot: string; glow: string }> = {
-  safe:    { text: 'text-emerald-300',  bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', dot: 'bg-emerald-400', glow: '' },
-  caution: { text: 'text-amber-300',    bg: 'bg-amber-500/10',   border: 'border-amber-500/20',   dot: 'bg-amber-400',   glow: '' },
-  danger:  { text: 'text-rose-300',     bg: 'bg-rose-500/10',    border: 'border-rose-500/30',    dot: 'bg-rose-400',    glow: 'shadow-[0_0_10px_rgba(244,63,94,0.15)]' },
-  rug:     { text: 'text-red-400',      bg: 'bg-red-600/15',     border: 'border-red-600/40',     dot: 'bg-red-500',     glow: 'shadow-[0_0_14px_rgba(220,38,38,0.25)]' },
+  safe:    { text: 'text-emerald-300', bg: 'bg-emerald-950',  border: 'border-emerald-700', dot: 'bg-emerald-400', glow: '' },
+  caution: { text: 'text-amber-300',   bg: 'bg-amber-950',    border: 'border-amber-700',   dot: 'bg-amber-400',   glow: '' },
+  danger:  { text: 'text-rose-300',    bg: 'bg-rose-950',     border: 'border-rose-700',    dot: 'bg-rose-400',    glow: '' },
+  rug:     { text: 'text-red-300',     bg: 'bg-red-950',      border: 'border-red-600',     dot: 'bg-red-400',     glow: '' },
 };
 
 function RiskCell({ score, tier }: { score: number; tier: NonNullable<TokenFeedItem['riskTier']> }) {
@@ -224,9 +225,46 @@ export function FeedPage({ tokens, loading, onSelectToken }: {
   }
 
   return (
-    <div className="rounded-2xl border border-white/[0.06] bg-slate-950/25 backdrop-blur-sm p-4 space-y-4">
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 shadow-xl overflow-hidden">
+      {/* Colored top accent bar */}
+      <div className="h-0.5 bg-gradient-to-r from-cyan-500 via-violet-500 to-cyan-500" />
+      <div className="p-4 sm:p-6 space-y-5">
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-50" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan-400" />
+            </span>
+            <div className="text-[10px] uppercase tracking-widest text-cyan-400 font-semibold">Live · Discovery</div>
+          </div>
+          <h2 className="text-xl sm:text-2xl font-black tracking-tight text-white">Top Bags tokens + Sentinel risk</h2>
+          <p className="text-xs text-slate-500 max-w-2xl">
+            This table is the in-app view of the public feed. For judge-friendly HTML, open the endpoints directly.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 justify-start lg:justify-end">
+          <a
+            href={`${SENTINEL_API_ORIGIN}/v1/tokens/feed`}
+            target="_blank"
+            rel="noopener"
+            className="inline-flex items-center justify-center rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-500/10 hover:border-cyan-500/30 transition-colors"
+          >
+            HTML feed <span className="ml-1 font-mono text-cyan-300/80">/v1/tokens/feed</span> ↗
+          </a>
+          <a
+            href={`${SENTINEL_API_ORIGIN}/v1/demo`}
+            target="_blank"
+            rel="noopener"
+            className="inline-flex items-center justify-center rounded-xl border border-slate-800/70 bg-slate-950/30 px-3 py-2 text-[11px] font-semibold text-slate-200 hover:border-slate-700 hover:bg-slate-900/40 transition-colors"
+          >
+            Proof viewer <span className="ml-1 font-mono text-slate-400">/v1/demo</span> ↗
+          </a>
+        </div>
+      </div>
+
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between border-b border-slate-800 pb-4">
         {/* Sort */}
         <div className="flex gap-1.5 flex-wrap">
           {SORT_OPTIONS.map(opt => (
@@ -241,10 +279,10 @@ export function FeedPage({ tokens, loading, onSelectToken }: {
               <button
                 key={opt.value}
                 onClick={() => setFilterTier(opt.value)}
-                className={`px-2.5 py-1 text-xs rounded-md transition-all ${
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
                   filterTier === opt.value
-                    ? `${opt.color} bg-white/5 border border-white/10`
-                    : 'text-gray-600 hover:text-gray-400 border border-transparent'
+                    ? `${opt.color} bg-slate-800 ring-1 ring-white/20`
+                    : 'text-slate-600 hover:text-slate-300 hover:bg-slate-800'
                 }`}
               >
                 {opt.label}
@@ -256,20 +294,20 @@ export function FeedPage({ tokens, loading, onSelectToken }: {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Filter..."
-            className="w-28 sm:w-36 bg-sentinel-surface/50 border border-sentinel-border rounded-md px-2.5 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-sentinel-accent/50 transition-colors"
+            className="w-28 sm:w-40 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all"
           />
         </div>
       </div>
 
       {/* Stats bar */}
-      <div className="flex gap-4 text-xs text-gray-500">
-        <span>{filtered.length} tokens</span>
-        <span className="text-sentinel-safe">{tokens.filter(t => t.priceChangePct24h > 0).length} ↑</span>
-        <span className="text-sentinel-danger">{tokens.filter(t => t.priceChangePct24h < 0).length} ↓</span>
+      <div className="flex gap-4 text-xs">
+        <span className="text-slate-400 font-medium">{filtered.length} tokens</span>
+        <span className="text-emerald-400 font-bold">{tokens.filter(t => t.priceChangePct24h > 0).length} ↑</span>
+        <span className="text-rose-400 font-bold">{tokens.filter(t => t.priceChangePct24h < 0).length} ↓</span>
       </div>
 
       {/* Table header */}
-      <div className="sticky top-0 z-10 flex items-center px-4 py-2 text-[10px] text-gray-600 uppercase tracking-widest border-b border-white/5 bg-slate-950/80 backdrop-blur">
+      <div className="sticky top-0 z-10 flex items-center px-4 py-2.5 text-[10px] text-slate-500 uppercase tracking-widest border-b border-slate-800 bg-slate-900">
         <div className="w-5 text-right mr-4">#</div>
         <div className="w-9 shrink-0" />
         <div className="flex-1 ml-4">Token</div>
@@ -285,12 +323,13 @@ export function FeedPage({ tokens, loading, onSelectToken }: {
           No tokens match your filters.
         </div>
       ) : (
-        <div className="divide-y divide-white/[0.025]">
+        <div className="divide-y divide-slate-800">
           {filtered.map((t, i) => (
             <TokenRow key={t.mint} token={t} onSelect={onSelectToken} index={i} />
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 /**
  * Telegram Alert Subscriptions
  *
- * Allows users to subscribe their Telegram chat to Sentinel pre-rug alerts.
+ * Allows users to subscribe their Telegram chat to Sentinel risk deterioration alerts.
  * Subscriptions are stored in KV; notifications are sent during the cron cycle.
  *
  * KV keys:
@@ -81,13 +81,18 @@ export interface CatchPayload {
   initialAt: number;
   caughtAt: number;
   reason: string;
+  triggerSignals?: string[];
 }
 
 export function buildCatchMessage(c: CatchPayload): string {
-  const leadMin = Math.round((c.caughtAt - c.initialAt) / 60_000);
+  const baselineAgeMin = Math.max(1, Math.round((c.caughtAt - c.initialAt) / 60_000));
   const short = `${c.mint.slice(0, 4)}…${c.mint.slice(-4)}`;
   const tier = c.tierTransition.split('→')[1] ?? 'danger';
   const emoji = tier === 'rug' ? '🚨' : '⚠️';
+  const primarySignal = c.triggerSignals?.[0] ?? (c.reason === 'score_drop' ? 'Rapid score deterioration' : 'Tier crash detected');
+  const balanceSignal = c.triggerSignals?.find((s) => s.startsWith('SOL balance:'));
+  const evidenceUrl = `https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catch-evidence/${c.mint}?caughtAt=${c.caughtAt}`;
+  const accuracyUrl = `https://sentinel-api.apiworkersdev.workers.dev/v1/watch/accuracy`;
 
   return [
     `${emoji} <b>SENTINEL ALERT: ${c.symbol} flagged</b>`,
@@ -95,15 +100,17 @@ export function buildCatchMessage(c: CatchPayload): string {
     `🪙 <b>${c.name}</b> (<code>${short}</code>)`,
     `📉 Risk score: <b>${c.initialScore} → ${c.caughtScore}</b> (−${c.scoreDrop} pts)`,
     `🔀 Tier: <b>${c.tierTransition}</b>`,
-    `⏱ Lead time: <b>${leadMin} min</b> before collapse`,
-    `📊 Signal: ${c.reason === 'score_drop' ? 'Rapid score deterioration' : 'Tier crash detected'}`,
+    `⏱ Baseline age: <b>${baselineAgeMin} min</b> from last safe snapshot to this alert`,
+    `📊 Signal: <b>${primarySignal}</b>`,
+    ...(balanceSignal ? [`💧 ${balanceSignal}`] : []),
+    `✅ Outcome tracking: verified after alert on /v1/watch/accuracy`,
     '',
-    `<a href="${DASHBOARD_URL}">🔍 View on Sentinel</a>`,
+    `<a href="${evidenceUrl}">🔍 Evidence</a> · <a href="${accuracyUrl}">📈 Accuracy</a> · <a href="${DASHBOARD_URL}">Dashboard</a>`,
   ].join('\n');
 }
 
 /**
- * Notify all Telegram subscribers of a new pre-rug catch.
+ * Notify all Telegram subscribers of a new risk deterioration catch.
  * Deduplicates sends per (chatId, mint) over 48h.
  */
 export async function notifySubscribersOfCatch(

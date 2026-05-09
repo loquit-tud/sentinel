@@ -5,6 +5,10 @@ const API_URL = import.meta.env.VITE_API_URL ?? (
     ? 'http://127.0.0.1:8787'
     : 'https://sentinel-api.apiworkersdev.workers.dev'
 );
+
+/** Public worker origin (no `/v1` prefix) — useful for linking to HTML views like `/v1/demo`. */
+export const SENTINEL_API_ORIGIN = API_URL;
+
 const BASE = `${API_URL}/v1`;
 
 // ── Auth (signature session) ──────────────────────────────
@@ -391,6 +395,53 @@ export async function fetchPreRugCatches(limit = 10): Promise<{ catches: PreRugC
   }
 }
 
+export type OutcomeStatus = 'pending' | 'confirmed' | 'false_positive' | 'inconclusive';
+
+export interface PredictionOutcomeRecord {
+  id: string;
+  mint: string;
+  symbol: string;
+  name: string;
+  caughtAt: number;
+  initialAt: number;
+  initialScore: number;
+  caughtScore: number;
+  tierTransition: string;
+  scoreDrop: number;
+  triggerSignals: string[];
+  baselineLiquidity: number | null;
+  baselineLiquidityUnit: 'usd' | 'sol' | 'unknown';
+  summaryStatus: OutcomeStatus;
+  confirmedAt: number | null;
+  confirmationReasons: string[];
+  windows: Record<string, { status: OutcomeStatus; dueAt: number; checkedAt?: number; reasons: string[] }>;
+}
+
+export interface AccuracyReport {
+  metrics: {
+    total: number;
+    confirmed: number;
+    falsePositive: number;
+    pending: number;
+    inconclusive: number;
+    evaluated: number;
+    precision: number | null;
+    medianLeadTimeMs: number | null;
+    lastUpdatedAt: number | null;
+  };
+  records: PredictionOutcomeRecord[];
+}
+
+export async function fetchAccuracyReport(limit = 20): Promise<AccuracyReport | null> {
+  try {
+    const res = await fetch(`${BASE}/watch/accuracy?format=json&limit=${limit}`);
+    const body: ApiResponse<AccuracyReport> = await res.json();
+    return body.ok && body.data ? body.data : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── Token Launch ─────────────────────────────────────────
 
 export interface TokenInfoResult {
@@ -477,6 +528,46 @@ export async function fetchAlertSubscriberCount(): Promise<number | null> {
     const body: ApiResponse<{ count: number }> = await res.json();
     if (!body.ok || typeof body.data?.count !== 'number') return null;
     return body.data.count;
+  } catch {
+    return null;
+  }
+}
+
+export interface AlertDebugCalibration {
+  updatedAt: number;
+  scoreChangeThreshold: number;
+  tierHysteresisPoints: number;
+}
+
+export interface AlertDebugQuality {
+  lastRunAt: number;
+  scannedTokens: number;
+  emittedAlerts: number;
+  sourceHealthScore: number;
+  nullLiquidityTokens: number;
+  scoreChangeThreshold: number;
+  observedMedianDelta: number;
+  suppressedTierHysteresis: number;
+  suppressedTierCooldown: number;
+  suppressedScoreCooldown: number;
+  suppressedLpDrainOutage: number;
+}
+
+export interface AlertDebugInfo {
+  calibration: AlertDebugCalibration | null;
+  quality: AlertDebugQuality | null;
+  telegramWebhook: {
+    duplicatesDropped: number;
+    staleDropped: number;
+  };
+}
+
+export async function fetchAlertDebug(): Promise<AlertDebugInfo | null> {
+  try {
+    const res = await fetch(`${BASE}/alerts/debug`);
+    const body: ApiResponse<AlertDebugInfo> = await res.json();
+    if (!body.ok || !body.data) return null;
+    return body.data;
   } catch {
     return null;
   }
@@ -944,7 +1035,7 @@ export function getSharePageUrl(mint: string): string {
 }
 
 export function buildTweetUrl(mint: string, score: number, tier: string, symbol: string): string {
-  const text = `${tierEmoji(tier)} ${symbol || mint.slice(0, 8)} scored ${score}/100 (${tier.toUpperCase()}) on @SentinelOnBags\n\nCheck any Bags token before you ape 👇`;
+  const text = `${tierEmoji(tier)} ${symbol || mint.slice(0, 8)} scored ${score}/100 (${tier.toUpperCase()}) on @SentinelOnBags\n\nCheck any Bags token with evidence 👇`;
   const url = getSharePageUrl(mint);
   return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
 }
@@ -1044,7 +1135,7 @@ export function buildCreatorTweetUrl(wallet: string, score: number, tier: string
   const shortWallet = `${wallet.slice(0, 6)}…${wallet.slice(-4)}`;
   const emoji = tier === 'safe' ? '🟢' : tier === 'caution' ? '🟡' : tier === 'danger' ? '🟠' : '🔴';
   const label = tier === 'safe' ? 'TRUSTED' : tier === 'caution' ? 'MIXED' : tier === 'danger' ? 'SUSPICIOUS' : 'RUGGER';
-  const text = `${emoji} Creator ${shortWallet} scored ${score}/100 (${label}) on @SentinelOnBags\n\nCheck any creator before you trade 👇`;
+  const text = `${emoji} Creator ${shortWallet} scored ${score}/100 (${label}) on @SentinelOnBags\n\nCheck creator risk with evidence 👇`;
   const dashUrl = import.meta.env.DEV ? 'http://localhost:5173' : 'https://sentinel-dashboard-3uy.pages.dev';
   return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(dashUrl)}`;
 }

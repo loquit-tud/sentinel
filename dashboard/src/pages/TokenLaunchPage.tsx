@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { runStressTest } from '../api';
+import { SENTINEL_API_ORIGIN, runStressTest } from '../api';
 import type { SurvivalResult, AttackScenario } from '../api';
 
 // ── Helpers ───────────────────────────────────────────────
@@ -24,7 +24,13 @@ function ScenarioCard({ scenario }: { scenario: AttackScenario }) {
   const barColor = sev >= 70 ? 'bg-red-500' : sev >= 40 ? 'bg-orange-500' : sev >= 20 ? 'bg-yellow-500' : 'bg-emerald-500';
 
   return (
-    <div className={`rounded-xl border p-4 ${triggered ? 'border-red-500/40 bg-red-500/5' : 'border-white/10 bg-white/5'}`}>
+    <div
+      className={`rounded-2xl border p-4 backdrop-blur-md shadow-[0_0_0_1px_rgba(255,255,255,0.03)] ${
+        triggered
+          ? 'border-red-500/35 bg-red-500/5'
+          : 'border-white/[0.08] bg-slate-950/25'
+      }`}
+    >
       <div className="flex items-center justify-between mb-2">
         <span className="font-semibold text-sm text-white">
           {SCENARIO_ICON[scenario.name] ?? '⚠️'} {scenario.name}
@@ -123,18 +129,46 @@ export function TokenLaunchPage() {
   const labelCfg = result ? LABEL_CONFIG[result.survivalLabel] : null;
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-white mb-1">Launch Survival Engine</h1>
-        <p className="text-slate-400 text-sm leading-relaxed">
-          Enter your pre-launch parameters. Sentinel analyzes structural exploit surfaces using
-          deterministic attacker models — not simulation, not guessing.
+      <div className="rounded-2xl border border-white/[0.08] bg-slate-950/35 backdrop-blur-md shadow-[0_0_0_1px_rgba(255,255,255,0.03)] p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Launch</div>
+            <h1 className="text-2xl font-bold text-white tracking-tight">Survival check</h1>
+            <p className="text-slate-400 text-sm leading-relaxed mt-1">
+              Stress-test launch parameters with deterministic scenario models. This is structural analysis — not a market prediction.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 justify-start sm:justify-end">
+            <a
+              href={`${SENTINEL_API_ORIGIN}/v1/demo`}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex items-center justify-center rounded-xl border border-slate-800/70 bg-slate-950/30 px-3 py-2 text-[11px] font-semibold text-slate-200 hover:border-slate-700 hover:bg-slate-900/40 transition-colors"
+            >
+              Proof viewer <span className="ml-1 font-mono text-slate-400">/v1/demo</span> ↗
+            </a>
+            <a
+              href="https://github.com/loquit-doru/sentinel/blob/master/EVIDENCE.md"
+              target="_blank"
+              rel="noopener"
+              className="inline-flex items-center justify-center rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-500/10 hover:border-cyan-500/30 transition-colors"
+            >
+              Methodology <span className="ml-1 font-mono text-cyan-300/80">EVIDENCE.md</span> ↗
+            </a>
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-600 mt-3">
+          API: <span className="font-mono text-slate-500">POST {SENTINEL_API_ORIGIN}/v1/launch/stress-test</span>
         </p>
       </div>
 
       {/* Form */}
-      <form onSubmit={handleSubmit} className="space-y-4 bg-white/5 border border-white/10 rounded-2xl p-6">
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-4 rounded-2xl border border-white/[0.08] bg-slate-950/25 backdrop-blur-md shadow-[0_0_0_1px_rgba(255,255,255,0.03)] p-6"
+      >
         <div className="grid grid-cols-2 gap-4">
           <InputField label="Initial Liquidity (USD)" placeholder="e.g. 25000" value={form.liquidity} onChange={set('liquidity')} required />
           <InputField label="LP Lock Duration (hours)" placeholder="e.g. 24" value={form.lpLockHours} onChange={set('lpLockHours')} required />
@@ -160,16 +194,16 @@ export function TokenLaunchPage() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-3 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-semibold transition-colors disabled:opacity-50"
+          className="w-full py-3 rounded-2xl bg-gradient-to-r from-cyan-500 to-cyan-400 hover:from-cyan-400 hover:to-cyan-300 text-slate-950 font-bold transition-colors disabled:opacity-50"
         >
-          {loading ? 'Analyzing...' : 'Run Exploit Surface Analysis'}
+          {loading ? 'Analyzing...' : 'Run exploit-surface analysis'}
         </button>
       </form>
 
       {/* Results */}
       {result && labelCfg && (
         <div className="space-y-4">
-          <div className={`rounded-2xl border ${labelCfg.border} ${labelCfg.bg} p-6 flex items-center gap-6`}>
+          <div className={`rounded-2xl border ${labelCfg.border} ${labelCfg.bg} p-6 flex flex-col sm:flex-row items-start sm:items-center gap-6 backdrop-blur-md shadow-[0_0_0_1px_rgba(255,255,255,0.03)]`}>
             <div className="text-center">
               <div className={`text-5xl font-black ${labelCfg.color}`}>{result.survivalScore}</div>
               <div className="text-xs text-slate-400 mt-1">Survival Score</div>
@@ -188,10 +222,13 @@ export function TokenLaunchPage() {
           </div>
 
           {result.worstScenario && (
-            <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-4 text-sm text-orange-300">
-              <span className="font-semibold">Primary vulnerability: </span>
+            <div className="rounded-2xl border border-orange-500/30 bg-orange-500/5 p-4 text-sm text-orange-200 backdrop-blur-md">
+              <span className="font-semibold">Primary modeled risk surface: </span>
               {result.scenarios[result.worstScenario].name} —{' '}
               severity {Math.round(result.scenarios[result.worstScenario].severity)}/100
+              <div className="text-[11px] text-orange-200/70 mt-2">
+                Illustrative severity from the scenario rubric — not a guarantee of how markets behave.
+              </div>
             </div>
           )}
         </div>
@@ -222,7 +259,7 @@ function InputField({
         value={value}
         onChange={onChange}
         required={required}
-        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-cyan-500/50 transition-colors"
+        className="w-full bg-slate-950/35 border border-white/[0.10] rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-600 shadow-[0_0_0_1px_rgba(255,255,255,0.03)] backdrop-blur-md focus:outline-none focus:border-cyan-500/45 focus:ring-2 focus:ring-cyan-500/15 transition-colors"
       />
     </label>
   );

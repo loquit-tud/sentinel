@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { RiskAlert, AlertSeverity, AlertType, RiskTier } from '../../../shared/types';
 import { TierBadge } from '../components/RiskDisplay';
-import { fetchAlertFeed, triggerAlertScan, resolveTelegramChatId, subscribeAlerts, unsubscribeAlerts, fetchSubscription, fetchTelegramBotInfo, fetchAlertSubscriberCount } from '../api';
+import { SENTINEL_API_ORIGIN, fetchAlertFeed, triggerAlertScan, resolveTelegramChatId, subscribeAlerts, unsubscribeAlerts, fetchSubscription, fetchTelegramBotInfo, fetchAlertSubscriberCount, fetchAlertDebug } from '../api';
+import type { AlertDebugInfo } from '../api';
 
 const SEVERITY_STYLES: Record<AlertSeverity, { border: string; bg: string; icon: string }> = {
   critical: { border: 'border-sentinel-danger/50', bg: 'bg-sentinel-danger/5', icon: '🚨' },
@@ -142,6 +143,7 @@ export function AlertFeedPage({
   const [subInfo, setSubInfo] = useState<{ subscribed: boolean; wallet?: string | null } | null>(null);
   const [botInfo, setBotInfo] = useState<{ username: string; deepLink: string } | null>(null);
   const [subscriberCount, setSubscriberCount] = useState<number | null>(null);
+  const [alertDebug, setAlertDebug] = useState<AlertDebugInfo | null>(null);
 
   useEffect(() => {
     fetchTelegramBotInfo().then(setBotInfo).catch(() => {});
@@ -151,11 +153,12 @@ export function AlertFeedPage({
   const loadFeed = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetchAlertFeed()
-      .then((feed) => {
+    Promise.all([fetchAlertFeed(), fetchAlertDebug()])
+      .then(([feed, debug]) => {
         setAlerts(feed.alerts);
         setScannedTokens(feed.scannedTokens);
         setLastScan(feed.lastScanAt);
+        setAlertDebug(debug);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -233,15 +236,44 @@ export function AlertFeedPage({
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="rounded-2xl border border-white/[0.08] bg-slate-950/35 backdrop-blur-md shadow-[0_0_0_1px_rgba(255,255,255,0.03)] p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold">Risk Alert Feed</h2>
+          <div className="text-[10px] uppercase tracking-[0.22em] text-slate-500">Alerts</div>
+          <h2 className="text-xl font-bold tracking-tight">Risk event stream</h2>
           <p className="text-sm text-gray-500 mt-1">
             Live monitoring of Bags tokens. Tier changes, LP unlocks, holder concentration spikes.
           </p>
           <p className="text-xs text-gray-600 mt-2">
-            This feed shows <span className="text-gray-400">daily events</span>. “Catches” are rare by design — see <span className="font-mono">/v1/watch/catches</span> for high-quality pre-rug catches.
+            This feed shows <span className="text-gray-400">daily events</span>. “Catches” are rare by design — see{' '}
+            <a
+              href={`${SENTINEL_API_ORIGIN}/v1/watch/catches`}
+              target="_blank"
+              rel="noopener"
+              className="font-mono text-cyan-400/80 hover:text-cyan-300 underline-offset-4 hover:underline"
+            >
+              /v1/watch/catches
+            </a>{' '}
+            for high-quality risk deterioration catches with evidence.
           </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a
+              href={`${SENTINEL_API_ORIGIN}/v1/alerts/feed`}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex items-center justify-center rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-500/10 hover:border-cyan-500/30 transition-colors"
+            >
+              HTML feed <span className="ml-1 font-mono text-cyan-300/80">/v1/alerts/feed</span> ↗
+            </a>
+            <a
+              href={`${SENTINEL_API_ORIGIN}/v1/demo`}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex items-center justify-center rounded-xl border border-slate-800/70 bg-slate-950/30 px-3 py-2 text-[11px] font-semibold text-slate-200 hover:border-slate-700 hover:bg-slate-900/40 transition-colors"
+            >
+              Proof viewer <span className="ml-1 font-mono text-slate-400">/v1/demo</span> ↗
+            </a>
+          </div>
         </div>
         <button
           onClick={handleScan}
@@ -254,6 +286,7 @@ export function AlertFeedPage({
         >
           {scanning ? 'Scanning…' : 'Scan Now'}
         </button>
+        </div>
       </div>
 
       {/* Creator Alerts (Telegram) */}
@@ -394,6 +427,60 @@ export function AlertFeedPage({
           </>
         )}
       </div>
+
+      {/* Alert quality + calibration */}
+      {alertDebug && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+          <div className="p-3 rounded-xl border border-sentinel-border/60 bg-black/20">
+            <div className="text-[10px] uppercase tracking-wider text-gray-600">Adaptive threshold</div>
+            <div className="mt-1 text-gray-200 font-semibold">
+              Δscore ≥ {alertDebug.calibration?.scoreChangeThreshold ?? '—'}
+            </div>
+            <div className="text-[11px] text-gray-500 mt-1">
+              Hysteresis: {alertDebug.calibration?.tierHysteresisPoints ?? '—'} pts
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl border border-sentinel-border/60 bg-black/20">
+            <div className="text-[10px] uppercase tracking-wider text-gray-600">Source health</div>
+            <div className="mt-1 text-gray-200 font-semibold">
+              {alertDebug.quality ? `${Math.round(alertDebug.quality.sourceHealthScore * 100)}%` : '—'}
+            </div>
+            <div className="text-[11px] text-gray-500 mt-1">
+              Null liq tokens: {alertDebug.quality?.nullLiquidityTokens ?? '—'}
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl border border-sentinel-border/60 bg-black/20">
+            <div className="text-[10px] uppercase tracking-wider text-gray-600">Suppressions</div>
+            <div className="mt-1 text-gray-200 font-semibold">
+              {(alertDebug.quality?.suppressedTierHysteresis ?? 0) +
+                (alertDebug.quality?.suppressedTierCooldown ?? 0) +
+                (alertDebug.quality?.suppressedScoreCooldown ?? 0)}
+            </div>
+            <div className="text-[11px] text-gray-500 mt-1">
+              Outage-drain: {alertDebug.quality?.suppressedLpDrainOutage ?? 0}
+            </div>
+          </div>
+
+          <div className="p-3 rounded-xl border border-sentinel-border/60 bg-black/20">
+            <div className="text-[10px] uppercase tracking-wider text-gray-600">Webhook hardening</div>
+            <div className="mt-1 text-gray-200 font-semibold">
+              dup {alertDebug.telegramWebhook.duplicatesDropped} · stale {alertDebug.telegramWebhook.staleDropped}
+            </div>
+            <div className="text-[11px] text-gray-500 mt-1">
+              <a
+                href={`${SENTINEL_API_ORIGIN}/v1/alerts/debug`}
+                target="_blank"
+                rel="noopener"
+                className="text-sentinel-accent hover:underline"
+              >
+                raw debug ↗
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Filter pills */}
       <div className="flex items-center gap-2">

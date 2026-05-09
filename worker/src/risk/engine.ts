@@ -106,9 +106,16 @@ export async function computeRiskScore(
   // Tier ceiling when critical market data is missing:
   //   both liq+vol missing → max 'caution' (cannot call it safe without market data)
   //   one missing          → max 'caution' (uncertainty penalty)
-  const score = missingSignals.length > 0
+  let score = missingSignals.length > 0
     ? Math.min(rawScore, 69)   // 69 = just below 'safe' threshold (70)
     : rawScore;
+
+  // Volume velocity spike: abnormal 24h volume surge (>300% vs prior day)
+  // Possible pump-before-dump — cap score at caution tier max even if static signals look safe
+  const volumeVelocitySpike = bird.volumeVelocityFlag;
+  if (volumeVelocitySpike) {
+    score = Math.min(score, 65); // allow caution-high but not safe
+  }
 
   // Compute pump signal if Bags stats24h data is available
   let pumpSignal: RiskScore['pumpSignal'] = undefined;
@@ -145,5 +152,6 @@ export async function computeRiskScore(
     cached: false,
     pumpSignal,
     ...(missingSignals.length > 0 && { missingSignals, dataConfidence }),
+    ...(volumeVelocitySpike && { volumeVelocitySpike: true }),
   };
 }
