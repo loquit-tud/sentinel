@@ -915,7 +915,7 @@ function HeroLivePanel({ stats }: { stats: LiveStats }) {
             Open proof-first viewer ↗
           </a>
           <a
-            href="https://github.com/loquit-doru/sentinel/blob/master/EVIDENCE.md"
+            href="https://github.com/loquit-tud/sentinel/blob/master/EVIDENCE.md"
             target="_blank"
             rel="noopener"
             className="inline-flex items-center justify-center rounded-xl border border-slate-800/70 bg-slate-950/30 px-4 py-2 text-xs font-semibold text-slate-200 hover:border-slate-700 hover:bg-slate-900/40 transition-colors"
@@ -1004,7 +1004,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
               Proof viewer ↗
             </a>
             <a
-              href="https://github.com/loquit-doru/sentinel"
+              href="https://github.com/loquit-tud/sentinel"
               target="_blank"
               rel="noopener"
               className="text-[11px] font-medium px-3 py-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-white/5 transition-colors hidden sm:inline"
@@ -1223,7 +1223,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
                       <div><span className="font-mono text-slate-300">/report</span> — quick summary</div>
                     </div>
                     <a
-                      href="https://github.com/loquit-doru/sentinel/blob/master/docs/telegram.md"
+                      href="https://github.com/loquit-tud/sentinel/blob/master/docs/telegram.md"
                       target="_blank"
                       rel="noopener"
                       className="inline-flex mt-2 text-[10px] text-cyan-400 hover:underline"
@@ -1333,11 +1333,11 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
           </div>
           <div className="grid sm:grid-cols-2 gap-3">
             {[
-              { href: "https://github.com/loquit-doru/sentinel/blob/master/EVIDENCE.md", icon: '📜', title: 'EVIDENCE.md', desc: 'Full methodology + weights + current Bags leaderboard scan + ground-truth alignment protocol.' },
+              { href: "https://github.com/loquit-tud/sentinel/blob/master/EVIDENCE.md", icon: '📜', title: 'EVIDENCE.md', desc: 'Full methodology + weights + current Bags leaderboard scan + ground-truth alignment protocol.' },
               { href: "https://sentinel-api.apiworkersdev.workers.dev/stats", icon: '📊', title: 'GET /stats', desc: 'Public endpoint. Raw JSON: total requests, per-endpoint breakdown, today vs yesterday. No auth.' },
-              { href: "https://github.com/loquit-doru/sentinel/blob/master/worker/src/risk/engine.ts", icon: '⚙️', title: 'engine.ts', desc: '8-signal weighted scoring + instant rug override. 102 unit tests. Pure TypeScript, no magic.' },
-              { href: "https://github.com/loquit-doru/sentinel/blob/master/docs/telegram.md", icon: '📩', title: 'Telegram bot docs', desc: 'Self-serve commands, creator alerts, webhook setup, and troubleshooting.' },
-              { href: "https://github.com/loquit-doru/sentinel/blob/master/worker/src/partner/bags-partner.ts", icon: '🤝', title: 'Bags Partner API', desc: '4 Bags partner endpoints consumed: config, create, claim-stats, claim-txs. Plus leaderboard, fee-share, trade quotes.' },
+              { href: "https://github.com/loquit-tud/sentinel/blob/master/worker/src/risk/engine.ts", icon: '⚙️', title: 'engine.ts', desc: '8-signal weighted scoring + instant rug override. 102 unit tests. Pure TypeScript, no magic.' },
+              { href: "https://github.com/loquit-tud/sentinel/blob/master/docs/telegram.md", icon: '📩', title: 'Telegram bot docs', desc: 'Self-serve commands, creator alerts, webhook setup, and troubleshooting.' },
+              { href: "https://github.com/loquit-tud/sentinel/blob/master/worker/src/partner/bags-partner.ts", icon: '🤝', title: 'Bags Partner API', desc: '4 Bags partner endpoints consumed: config, create, claim-stats, claim-txs. Plus leaderboard, fee-share, trade quotes.' },
             ].map((item) => (
               <a
                 key={item.title}
@@ -1403,7 +1403,7 @@ export function LandingPage({ onLaunch, onScanToken }: { onLaunch: () => void; o
             <span>Sentinel v0.14.0 · Autonomous risk monitoring for Bags</span>
           </div>
           <div className="flex items-center gap-4">
-            <a href="https://github.com/loquit-doru/sentinel" target="_blank" rel="noopener" className="hover:text-slate-300 transition-colors">GitHub</a>
+            <a href="https://github.com/loquit-tud/sentinel" target="_blank" rel="noopener" className="hover:text-slate-300 transition-colors">GitHub</a>
             <a href="https://bags.fm" target="_blank" rel="noopener" className="hover:text-slate-300 transition-colors">bags.fm</a>
             <a href="https://t.me/SentinelRiskAlerts" target="_blank" rel="noopener" className="hover:text-slate-300 transition-colors">Telegram</a>
           </div>

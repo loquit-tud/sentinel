@@ -10,7 +10,7 @@ AI risk intelligence + autonomous risk deterioration watcher for [Bags](https://
 
 [![Live Dashboard](https://img.shields.io/badge/Dashboard-Live-06b6d4?style=flat-square)](https://sentinel-dashboard-3uy.pages.dev)
 [![API](https://img.shields.io/badge/API-v0.14.0-22c55e?style=flat-square)](https://sentinel-api.apiworkersdev.workers.dev/health)
-[![CI](https://github.com/loquit-doru/sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/loquit-doru/sentinel/actions)
+[![CI](https://github.com/loquit-tud/sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/loquit-tud/sentinel/actions)
 [![Telegram](https://img.shields.io/badge/Telegram-@SentinelRiskAlerts-26A5E4?style=flat-square)](https://t.me/SentinelRiskAlerts)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178c6?style=flat-square)](https://typescriptlang.org)
 
@@ -227,7 +227,7 @@ Each factor traces back to its source (RugCheck, Helius DAS, Birdeye, Bags) — 
 | API | [sentinel-api.apiworkersdev.workers.dev](https://sentinel-api.apiworkersdev.workers.dev/health) |
 | Telegram | [@SentinelRiskAlerts](https://t.me/SentinelRiskAlerts) |
 | $SENT Token | [bags.fm/token/Az1LWL...](https://bags.fm/token/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS) |
-| GitHub | [github.com/loquit-doru/sentinel](https://github.com/loquit-doru/sentinel) |
+| GitHub | [github.com/loquit-tud/sentinel](https://github.com/loquit-tud/sentinel) |
 
 ---
 
@@ -235,7 +235,7 @@ Each factor traces back to its source (RugCheck, Helius DAS, Birdeye, Bags) — 
 
 ```bash
 # Clone & install
-git clone https://github.com/loquit-doru/sentinel.git
+git clone https://github.com/loquit-tud/sentinel.git
 cd sentinel && npm install
 
 # Create worker/.dev.vars with your API keys

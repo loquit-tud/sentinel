@@ -77,9 +77,9 @@ Sentinel's agent loop is the primitive. The next layer is creator early warning:
 
 - Dashboard: https://sentinel-dashboard-3uy.pages.dev
 - API: https://sentinel-api.apiworkersdev.workers.dev
-- GitHub: https://github.com/loquit-doru/sentinel
+- GitHub: https://github.com/loquit-tud/sentinel
 - Telegram: https://t.me/SentinelRiskAlerts
 - $SENT: https://bags.fm/token/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS
-- Evidence: https://github.com/loquit-doru/sentinel/blob/master/EVIDENCE.md
+- Evidence: https://github.com/loquit-tud/sentinel/blob/master/EVIDENCE.md
 - Catches (live): https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches
 - Outcomes (live): https://sentinel-api.apiworkersdev.workers.dev/v1/watch/accuracy

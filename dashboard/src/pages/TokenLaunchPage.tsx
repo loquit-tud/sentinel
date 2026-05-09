@@ -150,7 +150,7 @@ export function TokenLaunchPage() {
               Proof viewer <span className="ml-1 font-mono text-slate-400">/v1/demo</span> ↗
             </a>
             <a
-              href="https://github.com/loquit-doru/sentinel/blob/master/EVIDENCE.md"
+              href="https://github.com/loquit-tud/sentinel/blob/master/EVIDENCE.md"
               target="_blank"
               rel="noopener"
               className="inline-flex items-center justify-center rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-[11px] font-semibold text-cyan-200 hover:bg-cyan-500/10 hover:border-cyan-500/30 transition-colors"

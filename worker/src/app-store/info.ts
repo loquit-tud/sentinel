@@ -49,7 +49,7 @@ export function getAppStoreInfo(): AppStoreInfo {
     links: {
       dashboard: 'https://sentinel-dashboard-3uy.pages.dev',
       api: 'https://sentinel-api.apiworkersdev.workers.dev',
-      github: 'https://github.com/loquit-doru/sentinel',
+      github: 'https://github.com/loquit-tud/sentinel',
       // Fill after submitting on DoraHacks (use the final BUIDL URL).
       dorahacks: 'https://dorahacks.io/hackathon/the-bags-hackathon/detail/',
       docs: 'https://sentinel-api.apiworkersdev.workers.dev/health',

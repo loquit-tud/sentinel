@@ -325,7 +325,7 @@ export function AlertFeedPage({
             <span className="text-gray-300 font-semibold">Docs</span>
             <div className="mt-1 space-y-1">
               <a
-                href="https://github.com/loquit-doru/sentinel/blob/master/docs/telegram.md"
+                href="https://github.com/loquit-tud/sentinel/blob/master/docs/telegram.md"
                 target="_blank"
                 rel="noopener"
                 className="text-sentinel-accent hover:underline"
