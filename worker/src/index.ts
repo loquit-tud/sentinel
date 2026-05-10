@@ -39,6 +39,7 @@ import { addWatchMint, removeWatchMint, getWatchlist, getBaseline, putBaseline, 
 import { computeSurvival } from './launch/survival';
 import type { SurvivalInput } from './launch/survival';
 import { generateRiskExplanation } from './risk/explain';
+import { hasXCredentials, postCatchToX } from './notify/x';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 
@@ -50,6 +51,11 @@ export interface Env {
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_ALERT_CHANNEL_ID?: string;
   TELEGRAM_WEBHOOK_SECRET?: string;
+  X_API_KEY?: string;
+  X_API_SECRET?: string;
+  X_ACCESS_TOKEN?: string;
+  X_ACCESS_TOKEN_SECRET?: string;
+  X_POST_RUG_ALERTS?: string;
   ENABLE_KV_ANALYTICS?: string;
   // KV
   SENTINEL_KV?: KVNamespace;
@@ -950,6 +956,123 @@ function renderCatchEvidenceHtml(evidence: Awaited<ReturnType<typeof getCatchEvi
 </body></html>`;
 }
 
+function buildManualShareText(
+  catchItem: Awaited<ReturnType<typeof getRecentCatches>>[number],
+  shareUrl: string,
+): string {
+  const shortMint = `${catchItem.mint.slice(0, 6)}...${catchItem.mint.slice(-4)}`;
+  const primarySignal = catchItem.triggerSignals?.[0]
+    ?? (catchItem.reason === 'score_drop' ? 'Rapid score deterioration' : 'Tier crash detected');
+  return [
+    `RUG ALERT: $${catchItem.symbol} ${catchItem.tierTransition}`,
+    `Score ${catchItem.initialScore}->${catchItem.caughtScore} (-${catchItem.scoreDrop})`,
+    primarySignal,
+    `Mint ${shortMint}`,
+    shareUrl,
+    '#Solana #BagsFM #Sentinel',
+  ].join('\n');
+}
+
+function renderManualShareHtml(data: {
+  title: string;
+  symbol: string;
+  mint: string;
+  cardUrl: string;
+  evidenceUrl: string;
+  dashboardUrl: string;
+  text: string;
+  intentUrl: string;
+}): string {
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>${escapeHtml(data.title)}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>*{box-sizing:border-box}body{background:#0a0e17;color:#e2e8f0;font-family:system-ui,sans-serif;margin:0;padding:24px}.wrap{max-width:1040px;margin:0 auto}.panel{background:#111827;border:1px solid #1e293b;border-radius:14px;padding:16px}.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:920px){.row{grid-template-columns:1fr}}h1{font-size:1.4rem;margin:0 0 4px;color:#fff}.sub{color:#64748b;margin:0 0 14px}.links a{color:#38bdf8;text-decoration:none}.links a:hover{text-decoration:underline}textarea{width:100%;min-height:180px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#dbeafe;padding:12px;font-size:.92rem;line-height:1.4}img{width:100%;height:auto;border-radius:12px;border:1px solid #1e293b;background:#020617}.btn{display:inline-block;padding:8px 12px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;text-decoration:none;font-size:.88rem}</style></head><body>
+<div class="wrap">
+  <h1>Manual X Share Card</h1>
+  <p class="sub">Copy text + save card image, then post manually on X.</p>
+  <div class="row">
+    <section class="panel">
+      <p><b>${escapeHtml(data.symbol)}</b> · <span>${escapeHtml(data.mint)}</span></p>
+      <p class="links"><a href="${escapeHtml(data.cardUrl)}" target="_blank">Open card SVG</a> · <a href="${escapeHtml(data.evidenceUrl)}" target="_blank">Evidence</a> · <a href="${escapeHtml(data.dashboardUrl)}" target="_blank">Dashboard</a></p>
+      <textarea readonly>${escapeHtml(data.text)}</textarea>
+      <p style="margin-top:12px"><a class="btn" href="${escapeHtml(data.intentUrl)}" target="_blank">Open in X (prefilled)</a></p>
+    </section>
+    <section class="panel">
+      <img src="${escapeHtml(data.cardUrl)}" alt="Sentinel share card" />
+    </section>
+  </div>
+</div>
+</body></html>`;
+}
+
+function buildXIntentUrl(postText: string): string {
+  return `https://x.com/intent/tweet?text=${encodeURIComponent(postText)}`;
+}
+
+function buildPngPreviewUrl(svgUrl: string): string {
+  // X preview is more reliable with raster images than raw SVG.
+  // We keep SVG as source-of-truth and derive a PNG URL via an image proxy.
+  const withoutScheme = svgUrl.replace(/^https?:\/\//, '');
+  return `https://images.weserv.nl/?url=${encodeURIComponent(withoutScheme)}&output=png&w=1200&h=630&fit=contain`;
+}
+
+function buildPngPreviewUrlFromMint(origin: string, mint: string, version: number): string {
+  const svgUrl = `${origin}/v1/card/${mint}?v=${version}`;
+  return buildPngPreviewUrl(svgUrl);
+}
+
+function renderXOgShareHtml(data: {
+  pageUrl: string;
+  title: string;
+  description: string;
+  cardSvgUrl: string;
+  cardPngUrl: string;
+  evidenceUrl: string;
+  dashboardUrl: string;
+  mint: string;
+}): string {
+  return `<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>${escapeHtml(data.title)}</title>
+<meta name="description" content="${escapeHtml(data.description)}" />
+<link rel="canonical" href="${escapeHtml(data.pageUrl)}" />
+
+<meta property="og:type" content="article" />
+<meta property="og:url" content="${escapeHtml(data.pageUrl)}" />
+<meta property="og:title" content="${escapeHtml(data.title)}" />
+<meta property="og:description" content="${escapeHtml(data.description)}" />
+<meta property="og:image" content="${escapeHtml(data.cardPngUrl)}" />
+<meta property="og:image:secure_url" content="${escapeHtml(data.cardPngUrl)}" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:site_name" content="Sentinel" />
+
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="${escapeHtml(data.title)}" />
+<meta name="twitter:description" content="${escapeHtml(data.description)}" />
+<meta name="twitter:image" content="${escapeHtml(data.cardPngUrl)}" />
+<meta name="twitter:image:alt" content="Sentinel risk alert card for ${escapeHtml(data.mint)}" />
+
+<style>
+*{box-sizing:border-box}body{margin:0;padding:24px;background:#0a0e17;color:#e2e8f0;font-family:system-ui,sans-serif}
+.wrap{max-width:980px;margin:0 auto}.panel{background:#111827;border:1px solid #1e293b;border-radius:14px;padding:16px}
+h1{margin:0 0 8px;color:#fff;font-size:1.3rem}.sub{margin:0 0 14px;color:#94a3b8}
+a{color:#38bdf8;text-decoration:none}a:hover{text-decoration:underline}
+img{width:100%;height:auto;border-radius:12px;border:1px solid #1e293b;background:#020617}
+</style>
+</head><body>
+<div class="wrap">
+  <div class="panel">
+    <h1>${escapeHtml(data.title)}</h1>
+    <p class="sub">This link is optimized for X preview cards.</p>
+    <p><a href="${escapeHtml(data.dashboardUrl)}" target="_blank">Open dashboard</a> · <a href="${escapeHtml(data.evidenceUrl)}" target="_blank">Open evidence</a> · <a href="${escapeHtml(data.cardSvgUrl)}" target="_blank">Open raw SVG card</a></p>
+    <img src="${escapeHtml(data.cardSvgUrl)}" alt="Sentinel share card" />
+  </div>
+</div>
+</body></html>`;
+}
+
 /**
  * GET /v1/watch/catch-evidence/:mint?caughtAt=<ms>
  * Immutable evidence bundle for a risk deterioration catch (KV, no TTL).
@@ -1029,6 +1152,268 @@ app.get('/v1/watch/accuracy', async (c) => {
 <div class="footer">Raw JSON: <a href="?format=json">/v1/watch/accuracy?format=json</a> · Confirmation rule: RugCheck rugged OR ≥80% external liquidity/pool collapse.</div>
 </body></html>`;
   return new Response(html, { headers: { 'content-type': 'text/html;charset=utf-8' } });
+});
+
+/**
+ * GET /v1/watch/share/latest
+ * Returns ready-to-share payload for manual X posting (latest catch):
+ * - card URL (SVG)
+ * - copy-ready post text
+ * - evidence + dashboard URLs
+ *
+ * Accepts HTML (default when browser requests text/html) and JSON (?format=json).
+ */
+app.get('/v1/watch/share/latest', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+
+  const recent = await getRecentCatches(kv, 1);
+  const latest = recent[0];
+  if (!latest) return c.json({ ok: false, error: 'No catches yet' }, 404);
+
+  const url = new URL(c.req.url);
+  const origin = url.origin;
+  const stableShareUrl = `${origin}/v1/watch/share/${latest.mint}/x?caughtAt=${latest.caughtAt}&cb=${latest.caughtAt}`;
+  const cardUrl = `${origin}/v1/card/${latest.mint}`;
+  const evidenceUrl = `${origin}/v1/watch/catch-evidence/${latest.mint}?caughtAt=${latest.caughtAt}`;
+  const dashboardUrl = `https://sentinel-dashboard-3uy.pages.dev/?risk=${latest.mint}`;
+  const text = buildManualShareText(latest, stableShareUrl);
+  const intentUrl = buildXIntentUrl(text);
+
+  const payload = {
+    mint: latest.mint,
+    symbol: latest.symbol,
+    name: latest.name,
+    scoreDrop: latest.scoreDrop,
+    tierTransition: latest.tierTransition,
+    caughtAt: latest.caughtAt,
+    cardUrl,
+    shareUrl: stableShareUrl,
+    evidenceUrl,
+    dashboardUrl,
+    text,
+    postText: text,
+    intentUrl,
+  };
+
+  const accept = c.req.header('accept') ?? '';
+  const wantsJson = c.req.query('format') === 'json' || !accept.includes('text/html');
+  if (wantsJson) return c.json({ ok: true, data: payload });
+
+  const html = renderManualShareHtml({
+    title: 'Sentinel Manual X Share',
+    symbol: latest.symbol,
+    mint: latest.mint,
+    cardUrl,
+    evidenceUrl,
+    dashboardUrl,
+    text,
+    intentUrl,
+  });
+  return new Response(html, { headers: { 'content-type': 'text/html;charset=utf-8' } });
+});
+
+/**
+ * GET /v1/watch/share/latest/post.txt
+ * Plain text message ready to paste directly into X composer.
+ */
+app.get('/v1/watch/share/latest/post.txt', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.text('KV not configured', 500);
+
+  const recent = await getRecentCatches(kv, 1);
+  const latest = recent[0];
+  if (!latest) return c.text('No catches yet', 404);
+
+  const url = new URL(c.req.url);
+  const origin = url.origin;
+  const stableShareUrl = `${origin}/v1/watch/share/${latest.mint}/x?caughtAt=${latest.caughtAt}&cb=${latest.caughtAt}`;
+  const text = buildManualShareText(latest, stableShareUrl);
+
+  return new Response(text, {
+    headers: {
+      'content-type': 'text/plain;charset=utf-8',
+      'cache-control': 'public, max-age=30',
+    },
+  });
+});
+
+/**
+ * GET /v1/watch/share/latest/intent
+ * Opens X intent composer with latest catch post text prefilled.
+ */
+app.get('/v1/watch/share/latest/intent', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.text('KV not configured', 500);
+
+  const recent = await getRecentCatches(kv, 1);
+  const latest = recent[0];
+  if (!latest) return c.text('No catches yet', 404);
+
+  const url = new URL(c.req.url);
+  const origin = url.origin;
+  const stableShareUrl = `${origin}/v1/watch/share/${latest.mint}/x?caughtAt=${latest.caughtAt}&cb=${latest.caughtAt}`;
+  const text = buildManualShareText(latest, stableShareUrl);
+  const intentUrl = buildXIntentUrl(text);
+
+  return Response.redirect(intentUrl, 302);
+});
+
+/**
+ * GET /v1/watch/share/latest/og-image.png
+ * Returns PNG suitable for OG/Twitter preview cards (latest catch).
+ * Image is generated by proxying the latest token SVG card through a PNG renderer.
+ */
+app.get('/v1/watch/share/latest/og-image.png', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.text('KV not configured', 500);
+
+  const recent = await getRecentCatches(kv, 1);
+  const latest = recent[0];
+  if (!latest) return c.text('No catches yet', 404);
+
+  const reqUrl = new URL(c.req.url);
+  const origin = reqUrl.origin;
+  const sourceUrl = buildPngPreviewUrlFromMint(origin, latest.mint, latest.caughtAt);
+
+  const imgRes = await fetch(sourceUrl, {
+    cf: {
+      cacheTtl: 120,
+      cacheEverything: true,
+    },
+  } as RequestInit);
+
+  if (!imgRes.ok) {
+    // Fallback: serve SVG directly if PNG conversion fails.
+    const svgFallback = await fetch(`${origin}/v1/card/${latest.mint}?v=${latest.caughtAt}`);
+    if (!svgFallback.ok) return c.text('Failed to render preview image', 502);
+    return new Response(svgFallback.body, {
+      headers: {
+        'content-type': 'image/svg+xml',
+        'cache-control': 'public, max-age=60',
+      },
+    });
+  }
+
+  return new Response(imgRes.body, {
+    headers: {
+      'content-type': 'image/png',
+      'cache-control': 'public, max-age=120',
+    },
+  });
+});
+
+/**
+ * GET /v1/watch/share/og-image/:mint?caughtAt=<ms>
+ * Deterministic OG image for a specific catch/mint, used by stable share URLs.
+ */
+app.get('/v1/watch/share/og-image/:mint', async (c) => {
+  const mint = c.req.param('mint');
+  if (!SOLANA_ADDR_RE.test(mint)) return c.text('Invalid mint', 400);
+
+  const caughtAt = Number(c.req.query('caughtAt') ?? Date.now());
+  const reqUrl = new URL(c.req.url);
+  const origin = reqUrl.origin;
+  const sourceUrl = buildPngPreviewUrlFromMint(origin, mint, Number.isFinite(caughtAt) ? caughtAt : Date.now());
+
+  const imgRes = await fetch(sourceUrl, {
+    cf: {
+      cacheTtl: 300,
+      cacheEverything: true,
+    },
+  } as RequestInit);
+
+  if (!imgRes.ok) {
+    const svgFallback = await fetch(`${origin}/v1/card/${mint}?v=${Number.isFinite(caughtAt) ? caughtAt : Date.now()}`);
+    if (!svgFallback.ok) return c.text('Failed to render preview image', 502);
+    return new Response(svgFallback.body, {
+      headers: {
+        'content-type': 'image/svg+xml',
+        'cache-control': 'public, max-age=120',
+      },
+    });
+  }
+
+  return new Response(imgRes.body, {
+    headers: {
+      'content-type': 'image/png',
+      'cache-control': 'public, max-age=300',
+    },
+  });
+});
+
+/**
+ * GET /v1/watch/share/:mint/x?caughtAt=<ms>
+ * Stable OG/Twitter share page for a specific catch/mint.
+ * Prefer this URL when posting on X to avoid mutable "latest" cache artifacts.
+ */
+app.get('/v1/watch/share/:mint/x', async (c) => {
+  const mint = c.req.param('mint');
+  if (!SOLANA_ADDR_RE.test(mint)) return c.text('Invalid mint', 400);
+
+  const caughtAt = Number(c.req.query('caughtAt') ?? Date.now());
+  const reqUrl = new URL(c.req.url);
+  const origin = reqUrl.origin;
+  const cacheBust = c.req.query('cb') ?? String(Date.now());
+  const pageUrl = reqUrl.toString();
+  const cardSvgUrl = `${origin}/v1/card/${mint}?v=${Number.isFinite(caughtAt) ? caughtAt : Date.now()}`;
+  const cardPngUrl = `${origin}/v1/watch/share/og-image/${mint}?caughtAt=${Number.isFinite(caughtAt) ? caughtAt : Date.now()}&cb=${encodeURIComponent(cacheBust)}`;
+  const evidenceUrl = `${origin}/v1/watch/catch-evidence/${mint}${Number.isFinite(caughtAt) ? `?caughtAt=${caughtAt}` : ''}`;
+  const dashboardUrl = `https://sentinel-dashboard-3uy.pages.dev/?risk=${mint}`;
+
+  // Best-effort: enrich title from catch record when available.
+  let symbol = mint.slice(0, 4).toUpperCase();
+  let tierTransition = 'risk update';
+  let scoreLine = mint.slice(0, 6) + '...' + mint.slice(-4);
+  if (c.env.SENTINEL_KV) {
+    const recent = await getRecentCatches(c.env.SENTINEL_KV, 50).catch(() => []);
+    const found = recent.find((r) => r.mint === mint && (!Number.isFinite(caughtAt) || r.caughtAt === caughtAt));
+    if (found) {
+      symbol = found.symbol || symbol;
+      tierTransition = found.tierTransition;
+      scoreLine = `Score ${found.initialScore}->${found.caughtScore} (-${found.scoreDrop})`;
+    }
+  }
+
+  const title = `RUG ALERT: $${symbol} ${tierTransition}`;
+  const description = scoreLine;
+
+  const html = renderXOgShareHtml({
+    pageUrl,
+    title,
+    description,
+    cardSvgUrl,
+    cardPngUrl,
+    evidenceUrl,
+    dashboardUrl,
+    mint,
+  });
+
+  return new Response(html, {
+    headers: {
+      'content-type': 'text/html;charset=utf-8',
+      'cache-control': 'public, max-age=300',
+    },
+  });
+});
+
+/**
+ * GET /v1/watch/share/latest/x
+ * OG/Twitter share page for the latest catch.
+ * Use this URL directly in X to get a richer preview card.
+ */
+app.get('/v1/watch/share/latest/x', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+
+  const recent = await getRecentCatches(kv, 1);
+  const latest = recent[0];
+  if (!latest) return c.json({ ok: false, error: 'No catches yet' }, 404);
+
+  const reqUrl = new URL(c.req.url);
+  const origin = reqUrl.origin;
+  const target = `${origin}/v1/watch/share/${latest.mint}/x?caughtAt=${latest.caughtAt}&cb=${Date.now()}`;
+  return Response.redirect(target, 302);
 });
 
 // ── Telegram Alert Subscriptions ─────────────────────────
@@ -3011,10 +3396,45 @@ async function enrichFeedWithRisk(
   });
 }
 
+async function broadcastCatch(env: Env, payload: CatchPayload): Promise<void> {
+  const DASHBOARD_URL = 'https://sentinel-dashboard-3uy.pages.dev';
+
+  if (env.TELEGRAM_BOT_TOKEN) {
+    if (env.TELEGRAM_ALERT_CHANNEL_ID) {
+      const { buildCatchMessage } = await import('./notify/alert-subscriptions');
+      const msg = buildCatchMessage(payload);
+      broadcastAlert(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_ALERT_CHANNEL_ID, msg)
+        .catch((err) => console.error('Channel broadcast failed:', err));
+    }
+
+    if (env.SENTINEL_KV) {
+      notifySubscribersOfCatch(env.SENTINEL_KV, env.TELEGRAM_BOT_TOKEN, payload)
+        .catch((err) => console.error('Subscriber notify failed:', err));
+    }
+  }
+
+  if (env.X_POST_RUG_ALERTS === '1' && env.SENTINEL_KV) {
+    const creds = {
+      apiKey: env.X_API_KEY,
+      apiSecret: env.X_API_SECRET,
+      accessToken: env.X_ACCESS_TOKEN,
+      accessTokenSecret: env.X_ACCESS_TOKEN_SECRET,
+    };
+    if (hasXCredentials(creds)) {
+      postCatchToX({
+        kv: env.SENTINEL_KV,
+        payload,
+        creds,
+        dashboardUrl: DASHBOARD_URL,
+      }).catch((err) => console.error('X catch post failed:', err));
+    }
+  }
+}
+
 /** Broadcast freshly-recorded DBC drain catches to Telegram (channel + subscribers). */
 async function broadcastDbcCatches(env: Env, dbcCatches: number): Promise<void> {
   if (dbcCatches <= 0) return;
-  if (!env.TELEGRAM_BOT_TOKEN || !env.SENTINEL_KV) return;
+  if (!env.SENTINEL_KV) return;
   const recent = await getRecentCatches(env.SENTINEL_KV, dbcCatches);
   const freshCutoff = Date.now() - 25 * 60 * 1000;
   const fresh = recent.filter((c) => c.caughtAt >= freshCutoff);
@@ -3026,14 +3446,7 @@ async function broadcastDbcCatches(env: Env, dbcCatches: number): Promise<void> 
       initialAt: c.initialAt, caughtAt: c.caughtAt, reason: c.reason,
       triggerSignals: c.triggerSignals,
     };
-    if (env.TELEGRAM_ALERT_CHANNEL_ID) {
-      const { buildCatchMessage } = await import('./notify/alert-subscriptions');
-      const msg = buildCatchMessage(payload);
-      broadcastAlert(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_ALERT_CHANNEL_ID, msg)
-        .catch((err) => console.error('DBC channel broadcast failed:', err));
-    }
-    notifySubscribersOfCatch(env.SENTINEL_KV, env.TELEGRAM_BOT_TOKEN, payload)
-      .catch((err) => console.error('DBC subscriber notify failed:', err));
+    await broadcastCatch(env, payload);
   }
 }
 
@@ -3133,8 +3546,8 @@ export default {
             const newCatchCount = await runPreRugWatch(env);
             if (newCatchCount > 0) {
               console.log(`Pre-rug watch: ${newCatchCount} new catch(es) recorded`);
-              // Broadcast fresh catches to Telegram channel + subscribers
-              if (env.TELEGRAM_BOT_TOKEN && env.SENTINEL_KV) {
+              // Broadcast fresh catches to all configured channels (Telegram/X)
+              if (env.SENTINEL_KV) {
                 const recent = await getRecentCatches(env.SENTINEL_KV, newCatchCount);
                 const freshCutoff = Date.now() - 25 * 60 * 1000; // within last 25min (cron is 15min)
                 const fresh = recent.filter((c) => c.caughtAt >= freshCutoff);
@@ -3152,16 +3565,7 @@ export default {
                     reason: c.reason,
                     triggerSignals: c.triggerSignals,
                   };
-                  // Broadcast to public channel (fire-and-forget)
-                  if (env.TELEGRAM_ALERT_CHANNEL_ID) {
-                    const { buildCatchMessage } = await import('./notify/alert-subscriptions');
-                    const msg = buildCatchMessage(payload);
-                    broadcastAlert(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_ALERT_CHANNEL_ID, msg)
-                      .catch((err) => console.error('Channel broadcast failed:', err));
-                  }
-                  // Notify personal subscribers (fire-and-forget)
-                  notifySubscribersOfCatch(env.SENTINEL_KV, env.TELEGRAM_BOT_TOKEN, payload)
-                    .catch((err) => console.error('Subscriber notify failed:', err));
+                  await broadcastCatch(env, payload);
                 }
               }
             }

@@ -273,6 +273,22 @@ export function AlertFeedPage({
             >
               Proof viewer <span className="ml-1 font-mono text-slate-400">/v1/demo</span> ↗
             </a>
+            <a
+              href={`${SENTINEL_API_ORIGIN}/v1/watch/share/latest`}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-[11px] font-semibold text-emerald-200 hover:bg-emerald-500/10 hover:border-emerald-500/30 transition-colors"
+            >
+              Share latest catch <span className="ml-1 font-mono text-emerald-300/80">/v1/watch/share/latest</span> ↗
+            </a>
+            <a
+              href={`${SENTINEL_API_ORIGIN}/v1/watch/share/latest/intent`}
+              target="_blank"
+              rel="noopener"
+              className="inline-flex items-center justify-center rounded-xl border border-fuchsia-500/20 bg-fuchsia-500/5 px-3 py-2 text-[11px] font-semibold text-fuchsia-200 hover:bg-fuchsia-500/10 hover:border-fuchsia-500/30 transition-colors"
+            >
+              Open in X (prefilled) <span className="ml-1 font-mono text-fuchsia-300/80">/v1/watch/share/latest/intent</span> ↗
+            </a>
           </div>
         </div>
         <button
