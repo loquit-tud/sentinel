@@ -24,5 +24,8 @@ jobs:
       - name: Typecheck all workspaces
         run: npm run check
 
-      - name: Run tests
+      - name: Run worker tests
         run: npm --workspace worker run test
+
+      - name: Run dashboard tests
+        run: npm --workspace dashboard run test

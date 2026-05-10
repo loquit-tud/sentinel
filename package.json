@@ -2,6 +2,10 @@
   "name": "sentinel",
   "version": "0.14.0",
   "private": true,
+  "overrides": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
   "description": "AI risk intelligence + auto fee optimizer for Bags creators",
   "workspaces": [
     "worker",
@@ -10,6 +14,7 @@
   ],
   "scripts": {
     "check": "npm --workspaces run check",
+    "test": "npm --workspace worker run test && npm --workspace dashboard run test",
     "dev:worker": "npm --workspace worker run dev",
     "dev:dashboard": "npm --workspace dashboard run dev",
     "deploy:worker": "npm --workspace worker run deploy",
