@@ -384,7 +384,7 @@ export function App() {
       <footer className="border-t border-slate-800/40 px-6 py-4 flex items-center justify-between text-[11px] text-slate-600">
         <div className="flex items-center gap-2">
           <SentinelLogo size={14} />
-          <span>Sentinel v0.13.0</span>
+          <span>Sentinel v0.14.0</span>
         </div>
         <a href="https://bags.fm" target="_blank" rel="noopener" className="text-sentinel-accent/60 hover:text-sentinel-accent transition-colors">
           bags.fm ↗
