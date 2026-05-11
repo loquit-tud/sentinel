@@ -11,7 +11,7 @@
  * Designed for Twitter link previews and direct sharing.
  */
 
-import type { RiskTier } from '../../../shared/types';
+import type { RiskTier, RiskBreakdown } from '../../../shared/types';
 import { TIER_COLORS_CARD, BREAKDOWN_LABELS } from '../../../shared/badge-colors';
 import { barColor, escapeXml } from '../../../shared/badge-utils';
 

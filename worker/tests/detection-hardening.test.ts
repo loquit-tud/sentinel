@@ -38,6 +38,7 @@ vi.mock('../src/watch/catch-evidence', () => ({
 import { runAlertScan, getAlertScannerDebug } from '../src/alerts/scanner';
 import { runPreRugWatch } from '../src/watch/pre-rug-catcher';
 import { runDbcPoolMonitor } from '../src/watch/dbc-pool-monitor';
+import { MockKV } from './mocks';
 
 class MockKV {
   private store = new Map<string, string>();

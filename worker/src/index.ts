@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { computeRiskScore } from './risk/engine';
 import { fetchTopTokens, fetchRecentLaunches } from './feed/bags';
 import { tierFromScore } from '../../shared/types';
+import { cachedCompute } from '../../shared/cache-helpers';
 import type { TokenFeedItem, RiskScore } from '../../shared/types';
 import { SENTINEL_DASHBOARD_URL } from '../../shared/constants';
 import { fetchClaimablePositions, fetchClaimTransactions } from './fees/bags-fees';
@@ -1894,17 +1895,15 @@ app.get('/v1/risk/:mint', async (c) => {
   }
 
   try {
-    const score = await computeRiskScore(mint, {
-      HELIUS_API_KEY: c.env.HELIUS_API_KEY,
-      BIRDEYE_API_KEY: c.env.BIRDEYE_API_KEY,
-    });
-
-    // Store in KV cache (60s TTL)
-    if (kv) {
-      c.executionCtx.waitUntil(
-        kv.put(`risk:${mint}`, JSON.stringify(score), { expirationTtl: 1800 }),
-      );
-    }
+    const score = await cachedCompute(
+      kv,
+      `risk:${mint}`,
+      1800,
+      () => computeRiskScore(mint, {
+        HELIUS_API_KEY: c.env.HELIUS_API_KEY,
+        BIRDEYE_API_KEY: c.env.BIRDEYE_API_KEY,
+      }),
+    );
 
     // Track scan for leaderboard (fire-and-forget)
     if (kv && scannerWallet && SOLANA_ADDR_RE.test(scannerWallet)) {
@@ -1983,22 +1982,13 @@ app.get('/v1/fees/:wallet', async (c) => {
 
   const kv = c.env.SENTINEL_KV;
 
-  // Check KV cache (30s TTL)
-  if (kv) {
-    const cached = await kv.get(`fees:${wallet}`, 'json');
-    if (cached) {
-      return c.json({ ok: true, data: cached }, 200, { 'x-cache': 'HIT' });
-    }
-  }
-
   try {
-    const snapshot = await fetchClaimablePositions(wallet, c.env.BAGS_API_KEY);
-
-    if (kv) {
-      c.executionCtx.waitUntil(
-        kv.put(`fees:${wallet}`, JSON.stringify(snapshot), { expirationTtl: 30 }),
-      );
-    }
+    const snapshot = await cachedCompute(
+      kv,
+      `fees:${wallet}`,
+      30,
+      () => fetchClaimablePositions(wallet, c.env.BAGS_API_KEY),
+    );
 
     return c.json({ ok: true, data: snapshot }, 200, { 'x-cache': 'MISS' });
   } catch (err) {
@@ -2892,22 +2882,13 @@ app.get('/v1/creator/:wallet', async (c) => {
 
   const kv = c.env.SENTINEL_KV;
 
-  // Cache creator profiles for 10 min
-  if (kv) {
-    const cached = await kv.get(`creator:${wallet}`, 'json');
-    if (cached) {
-      return c.json({ ok: true, data: cached }, 200, { 'x-cache': 'HIT' });
-    }
-  }
-
   try {
-    const profile = await buildCreatorProfile(wallet, c.env);
-
-    if (kv) {
-      c.executionCtx.waitUntil(
-        kv.put(`creator:${wallet}`, JSON.stringify(profile), { expirationTtl: 600 }),
-      );
-    }
+    const profile = await cachedCompute(
+      kv,
+      `creator:${wallet}`,
+      600,
+      () => buildCreatorProfile(wallet, c.env),
+    );
 
     return c.json({ ok: true, data: profile }, 200, { 'x-cache': 'MISS' });
   } catch (err) {

@@ -1,6 +1,7 @@
 import type { SmartFeeSnapshot, SmartFeePosition, FeeUrgency, RiskTier } from '../../../shared/types';
 import { fetchClaimablePositions } from './bags-fees';
 import { computeRiskScore } from '../risk/engine';
+import { cachedCompute } from '../../../shared/cache-helpers';
 
 interface SmartFeeEnv {
   HELIUS_API_KEY?: string;
@@ -71,20 +72,15 @@ export async function fetchSmartFees(
   // Step 2: Score risk for each token (parallel, with cache via KV)
   const riskResults = await Promise.allSettled(
     raw.positions.map(async (pos) => {
-      // Try KV cache first
-      if (env.SENTINEL_KV) {
-        const cached = await env.SENTINEL_KV.get(`risk:${pos.tokenMint}`, 'json');
-        if (cached) return cached as { score: number; tier: RiskTier };
-      }
-      const score = await computeRiskScore(pos.tokenMint, {
-        HELIUS_API_KEY: env.HELIUS_API_KEY,
-        BIRDEYE_API_KEY: env.BIRDEYE_API_KEY,
-      });
-      // Cache it
-      if (env.SENTINEL_KV) {
-        env.SENTINEL_KV.put(`risk:${pos.tokenMint}`, JSON.stringify(score), { expirationTtl: 60 })
-          .catch(() => {});
-      }
+      const score = await cachedCompute(
+        env.SENTINEL_KV,
+        `risk:${pos.tokenMint}`,
+        60,
+        () => computeRiskScore(pos.tokenMint, {
+          HELIUS_API_KEY: env.HELIUS_API_KEY,
+          BIRDEYE_API_KEY: env.BIRDEYE_API_KEY,
+        }),
+      );
       return { score: score.score, tier: score.tier };
     }),
   );

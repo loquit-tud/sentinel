@@ -62,33 +62,7 @@ vi.mock('../src/risk/engine', () => ({
 }));
 
 import worker from '../src/index';
-
-class MockKV {
-  private store = new Map<string, string>();
-
-  async get(key: string, type?: 'json'): Promise<any> {
-    const raw = this.store.get(key);
-    if (raw == null) return null;
-    if (type === 'json') return JSON.parse(raw);
-    return raw;
-  }
-
-  async put(key: string, value: string): Promise<void> {
-    this.store.set(key, value);
-  }
-
-  async delete(key: string): Promise<void> {
-    this.store.delete(key);
-  }
-
-  async list(_opts?: { prefix?: string; limit?: number; cursor?: string }): Promise<{ keys: Array<{ name: string }>; list_complete: boolean; cursor: string }> {
-    return {
-      keys: [],
-      list_complete: true,
-      cursor: '',
-    };
-  }
-}
+import { MockKV } from './mocks';
 
 function makeCriticalDrainAlert(id: string) {
   return {

@@ -1,3 +1,5 @@
+import { buildConfidenceLine, buildRiskLine, buildMarketLine, buildLpLockLine, buildLpMintLine, buildMessageLines } from '../../../shared/message-helpers';
+
 const TELEGRAM_API = 'https://api.telegram.org';
 
 interface TelegramChat {
@@ -151,28 +153,7 @@ export function buildLpDrainMessage(
     statusLine = '🟡 Potential early-stage drain — monitor closely.';
   }
 
-  const missing = (opts?.missingSignals ?? []).filter(Boolean);
-  const confidenceLine = typeof opts?.dataConfidence === 'number'
-    ? `📌 Data confidence: <b>${Math.round(opts.dataConfidence * 100)}%</b>` +
-      (missing.length > 0 ? ` · missing: <code>${missing.join(', ')}</code>` : '')
-    : (missing.length > 0 ? `📌 Missing signals: <code>${missing.join(', ')}</code>` : null);
-
-  const riskLine = (typeof opts?.riskScore === 'number' && opts?.riskTier)
-    ? `🧠 Risk score: <b>${opts.riskScore}/100</b> (${String(opts.riskTier).toUpperCase()})`
-    : null;
-
-  const marketLine = opts?.marketPubkey
-    ? `🏊 Pool: <code>${opts.marketPubkey.slice(0, 4)}…${opts.marketPubkey.slice(-4)}</code>`
-    : null;
-
-  const lpLockLine = (typeof opts?.lpLockedPct === 'number')
-    ? `🔒 LP locked: <b>${opts.lpLockedPct.toFixed(0)}%</b>` +
-      (typeof opts?.lpLockedUsd === 'number' ? ` (~$${opts.lpLockedUsd.toLocaleString()})` : '')
-    : null;
-
-  const lpMintLine = opts?.lpMint
-    ? `🧾 LP mint: <code>${opts.lpMint.slice(0, 4)}…${opts.lpMint.slice(-4)}</code>`
-    : null;
+  const messageLines = buildMessageLines(opts ?? {});
 
   return [
     header,
@@ -181,11 +162,7 @@ export function buildLpDrainMessage(
     `💧 Liquidity: <b>$${prevLiquidityUsd.toLocaleString()}</b> → <b>$${currentLiquidityUsd.toLocaleString()}</b>`,
     `📉 Drop: <b>-${dropPct.toFixed(1)}%</b> since last scan`,
     opts?.confirmed === false ? '🧪 <i>Unconfirmed: single-scan signal (wait for next scan / cross-check sources)</i>' : null,
-    riskLine,
-    confidenceLine,
-    marketLine,
-    lpLockLine,
-    lpMintLine,
+    ...messageLines,
     '',
     statusLine,
     '',
@@ -211,28 +188,16 @@ export function buildLpUnlockMessage(params: {
   dashboardUrl: string;
 }): string {
   const short = `${params.mint.slice(0, 4)}…${params.mint.slice(-4)}`;
-  const missing = (params.missingSignals ?? []).filter(Boolean);
-  const confidenceLine = typeof params.dataConfidence === 'number'
-    ? `📌 Data confidence: <b>${Math.round(params.dataConfidence * 100)}%</b>` +
-      (missing.length > 0 ? ` · missing: <code>${missing.join(', ')}</code>` : '')
-    : (missing.length > 0 ? `📌 Missing signals: <code>${missing.join(', ')}</code>` : null);
-
-  const riskLine = (typeof params.riskScore === 'number' && params.riskTier)
-    ? `🧠 Risk score: <b>${params.riskScore}/100</b> (${String(params.riskTier).toUpperCase()})`
-    : null;
-
-  const marketLine = params.marketPubkey
-    ? `🏊 Pool: <code>${params.marketPubkey.slice(0, 4)}…${params.marketPubkey.slice(-4)}</code>`
-    : null;
-
-  const lpLockLine = (typeof params.lpLockedPct === 'number')
-    ? `🔒 LP locked: <b>${params.lpLockedPct.toFixed(0)}%</b>` +
-      (typeof params.lpLockedUsd === 'number' ? ` (~$${params.lpLockedUsd.toLocaleString()})` : '')
-    : null;
-
-  const lpMintLine = params.lpMint
-    ? `🧾 LP mint: <code>${params.lpMint.slice(0, 4)}…${params.lpMint.slice(-4)}</code>`
-    : null;
+  const messageLines = buildMessageLines({
+    riskScore: params.riskScore,
+    riskTier: params.riskTier,
+    dataConfidence: params.dataConfidence,
+    missingSignals: params.missingSignals,
+    marketPubkey: params.marketPubkey,
+    lpMint: params.lpMint,
+    lpLockedPct: params.lpLockedPct,
+    lpLockedUsd: params.lpLockedUsd,
+  });
 
   const prevLine = typeof params.prevLpLockedScore === 'number'
     ? `↘️ LP lock score: <b>${params.prevLpLockedScore} → ${params.lpLockedScore}</b>`
@@ -244,11 +209,7 @@ export function buildLpUnlockMessage(params: {
     `🪙 Token: <b>${params.tokenName}</b> (<code>${short}</code>)`,
     prevLine,
     '<b>LP can now be removed at any time.</b>',
-    riskLine,
-    confidenceLine,
-    marketLine,
-    lpLockLine,
-    lpMintLine,
+    ...messageLines,
     '',
     `<a href="${params.dashboardUrl}?risk=${params.mint}">📊 View token on Sentinel</a>`,
     `<a href="https://api.rugcheck.xyz/v1/tokens/${params.mint}/report">🔎 Verify on RugCheck</a>`,

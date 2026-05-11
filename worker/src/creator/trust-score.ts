@@ -18,6 +18,7 @@ import type {
   RiskTier,
 } from '../../../shared/types';
 import { tierFromScore } from '../../../shared/types';
+import { cachedCompute } from '../../../shared/cache-helpers';
 import { buildCreatorProfile } from './profiler';
 import { fetchRugCheckReport } from '../risk/rugcheck';
 
@@ -32,34 +33,25 @@ export async function computeCreatorTrustScore(
   // Check KV cache
   const kv = env.SENTINEL_KV;
   const cacheKey = `trust:${wallet}`;
-  if (kv) {
-    const cached = await kv.get(cacheKey, 'json') as CreatorTrustScore | null;
-    if (cached) return cached;
-  }
 
-  // Build base profile (reuses existing profiler)
-  const profile = await buildCreatorProfile(wallet, env);
-  const signals = await analyzeSignals(profile, env);
-  const riskFlags = deriveFlags(signals, profile);
-  const trustScore = calculateTrustScore(signals, profile);
-  const verdict = generateVerdict(trustScore, signals, riskFlags);
+  return cachedCompute(kv, cacheKey, 900, async () => {
+    // Build base profile (reuses existing profiler)
+    const profile = await buildCreatorProfile(wallet, env);
+    const signals = await analyzeSignals(profile, env);
+    const riskFlags = deriveFlags(signals, profile);
+    const trustScore = calculateTrustScore(signals, profile);
+    const verdict = generateVerdict(trustScore, signals, riskFlags);
 
-  const result: CreatorTrustScore = {
-    wallet,
-    trustScore,
-    trustTier: tierFromScore(trustScore),
-    signals,
-    riskFlags,
-    verdict,
-    computedAt: Date.now(),
-  };
-
-  // Cache
-  if (kv) {
-    await kv.put(cacheKey, JSON.stringify(result), { expirationTtl: TRUST_CACHE_TTL }).catch(() => {});
-  }
-
-  return result;
+    return {
+      wallet,
+      trustScore,
+      trustTier: tierFromScore(trustScore),
+      signals,
+      riskFlags,
+      verdict,
+      computedAt: Date.now(),
+    };
+  });
 }
 
 async function analyzeSignals(
