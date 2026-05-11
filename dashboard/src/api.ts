@@ -6,6 +6,12 @@ const API_URL = import.meta.env.VITE_API_URL ?? (
     : 'https://sentinel-api.apiworkersdev.workers.dev'
 );
 
+const DASHBOARD_URL = import.meta.env.VITE_DASHBOARD_URL ?? (
+  import.meta.env.DEV
+    ? 'http://localhost:5173'
+    : 'https://sentinel-dashboard-3uy.pages.dev'
+);
+
 /** Public worker origin (no `/v1` prefix) — useful for linking to HTML views like `/v1/demo`. */
 export const SENTINEL_API_ORIGIN = API_URL;
 
@@ -1028,10 +1034,7 @@ export function getShareCardUrl(mint: string): string {
 }
 
 export function getSharePageUrl(mint: string): string {
-  const dashUrl = import.meta.env.DEV
-    ? 'http://localhost:5173'
-    : 'https://sentinel-dashboard-3uy.pages.dev';
-  return `${dashUrl}?risk=${mint}`;
+  return `${DASHBOARD_URL}?risk=${mint}`;
 }
 
 export function buildTweetUrl(mint: string, score: number, tier: string, symbol: string): string {
@@ -1136,8 +1139,7 @@ export function buildCreatorTweetUrl(wallet: string, score: number, tier: string
   const emoji = tier === 'safe' ? '🟢' : tier === 'caution' ? '🟡' : tier === 'danger' ? '🟠' : '🔴';
   const label = tier === 'safe' ? 'TRUSTED' : tier === 'caution' ? 'MIXED' : tier === 'danger' ? 'SUSPICIOUS' : 'RUGGER';
   const text = `${emoji} Creator ${shortWallet} scored ${score}/100 (${label}) on @SentinelOnBags\n\nCheck creator risk with evidence 👇`;
-  const dashUrl = import.meta.env.DEV ? 'http://localhost:5173' : 'https://sentinel-dashboard-3uy.pages.dev';
-  return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(dashUrl)}`;
+  return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(DASHBOARD_URL)}`;
 }
 
 // ── Creator Trust Score ──────────────────────────────────

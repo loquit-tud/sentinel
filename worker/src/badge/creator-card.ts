@@ -10,25 +10,11 @@
  *   - Sentinel branding + CTA
  */
 
-import type { RiskTier, CreatorProfile } from '../../../shared/types';
+import type { CreatorProfile } from '../../../shared/types';
+import { TIER_COLORS_CREATOR } from '../../../shared/badge-colors';
+import { barColor, escapeXml } from '../../../shared/badge-utils';
 
-const TIER_COLORS: Record<RiskTier, { bg: string; accent: string; label: string; emoji: string }> = {
-  safe:    { bg: '#0f2a1a', accent: '#22c55e', label: 'TRUSTED',    emoji: '🟢' },
-  caution: { bg: '#2a2510', accent: '#eab308', label: 'MIXED',      emoji: '🟡' },
-  danger:  { bg: '#2a1010', accent: '#ef4444', label: 'SUSPICIOUS', emoji: '🟠' },
-  rug:     { bg: '#2a0a0a', accent: '#991b1b', label: 'CRITICAL RISK',     emoji: '🔴' },
-};
-
-function barColor(value: number): string {
-  if (value >= 70) return '#22c55e';
-  if (value >= 40) return '#eab308';
-  if (value >= 10) return '#ef4444';
-  return '#991b1b';
-}
-
-function escapeXml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+const TIER_COLORS = TIER_COLORS_CREATOR;
 
 export function renderCreatorCardSVG(profile: CreatorProfile): string {
   const { wallet, reputationScore, reputationTier, totalTokens, safeCount, ruggedCount, tokens } = profile;

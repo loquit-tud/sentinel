@@ -8,13 +8,9 @@
  */
 
 import type { RiskTier } from '../../../shared/types';
+import { TIER_COLORS_SVG } from '../../../shared/badge-colors';
 
-const TIER_COLORS: Record<RiskTier, { bg: string; text: string; label: string }> = {
-  safe:    { bg: '#16a34a', text: '#ffffff', label: 'SAFE' },
-  caution: { bg: '#ca8a04', text: '#ffffff', label: 'CAUTION' },
-  danger:  { bg: '#dc2626', text: '#ffffff', label: 'DANGER' },
-  rug:     { bg: '#7f1d1d', text: '#ffffff', label: 'CRITICAL RISK' },
-};
+const TIER_COLORS = TIER_COLORS_SVG;
 
 export function renderBadgeSVG(score: number, tier: RiskTier, symbol: string): string {
   const colors = TIER_COLORS[tier];

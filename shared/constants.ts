@@ -5,6 +5,14 @@ export const RUGCHECK_API_BASE = 'https://api.rugcheck.xyz/v1';
 export const BIRDEYE_API_BASE = 'https://public-api.birdeye.so';
 export const HELIUS_RPC_BASE = 'https://mainnet.helius-rpc.com';
 
+// ── Sentinel Service URLs ────────────────────────────────
+
+export const SENTINEL_DASHBOARD_URL = 'https://sentinel-dashboard-3uy.pages.dev';
+export const SENTINEL_API_URL = 'https://sentinel-api.apiworkersdev.workers.dev';
+export const SENTINEL_TELEGRAM_URL = 'https://t.me/SentinelRiskAlerts';
+export const SENTINEL_GITHUB_URL = 'https://github.com/loquit-tud/sentinel';
+export const SENT_TOKEN_URL = 'https://bags.fm/token/Az1LWLGFs63XscCQGeZyn5qVV31SRKtYn53hMB6bBAGS';
+
 // ── Risk Scoring Weights ─────────────────────────────────
 
 export const RISK_WEIGHTS = {

@@ -4,7 +4,7 @@
  * Centralizes all app store metadata so the dashboard
  * and API can serve consistent info for the app listing.
  */
-import { SENT_MINT, SENTINEL_TEAM_WALLET, SENTINEL_HOLDERS_WALLET } from '../../../shared/constants';
+import { SENT_MINT, SENTINEL_TEAM_WALLET, SENTINEL_HOLDERS_WALLET, SENTINEL_DASHBOARD_URL, SENTINEL_API_URL, SENTINEL_GITHUB_URL } from '../../../shared/constants';
 
 // ── Types ────────────────────────────────────────────────
 
@@ -47,12 +47,12 @@ export function getAppStoreInfo(): AppStoreInfo {
       bagsUrl: `https://bags.fm/token/${SENT_MINT}`,
     },
     links: {
-      dashboard: 'https://sentinel-dashboard-3uy.pages.dev',
-      api: 'https://sentinel-api.apiworkersdev.workers.dev',
-      github: 'https://github.com/loquit-tud/sentinel',
+      dashboard: SENTINEL_DASHBOARD_URL,
+      api: SENTINEL_API_URL,
+      github: SENTINEL_GITHUB_URL,
       // Fill after submitting on DoraHacks (use the final BUIDL URL).
       dorahacks: 'https://dorahacks.io/hackathon/the-bags-hackathon/detail/',
-      docs: 'https://sentinel-api.apiworkersdev.workers.dev/health',
+      docs: `${SENTINEL_API_URL}/health`,
     },
     features: [
       'Risk Scoring Engine (8 weighted signals → 0-100)',

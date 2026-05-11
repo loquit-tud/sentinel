@@ -4,6 +4,7 @@ import { computeRiskScore } from './risk/engine';
 import { fetchTopTokens, fetchRecentLaunches } from './feed/bags';
 import { tierFromScore } from '../../shared/types';
 import type { TokenFeedItem, RiskScore } from '../../shared/types';
+import { SENTINEL_DASHBOARD_URL } from '../../shared/constants';
 import { fetchClaimablePositions, fetchClaimTransactions } from './fees/bags-fees';
 import { fetchSmartFees } from './fees/smart-fees';
 import { createTokenInfo, createLaunchTransaction, createFeeShareConfig } from './token/launch';
@@ -70,7 +71,7 @@ const app = new Hono<{ Bindings: Env }>();
 // ── CORS (must be registered before routes) ───────────────
 
 const ALLOWED_ORIGINS = [
-  'https://sentinel-dashboard-3uy.pages.dev',
+  SENTINEL_DASHBOARD_URL,
   'https://sentinel.bags.fm',
   'https://bags.fm',
   'http://localhost:5173',
@@ -3399,7 +3400,7 @@ async function enrichFeedWithRisk(
 }
 
 async function broadcastCatch(env: Env, payload: CatchPayload): Promise<void> {
-  const DASHBOARD_URL = 'https://sentinel-dashboard-3uy.pages.dev';
+  const DASHBOARD_URL = SENTINEL_DASHBOARD_URL;
 
   if (env.TELEGRAM_BOT_TOKEN) {
     if (env.TELEGRAM_ALERT_CHANNEL_ID) {
@@ -3532,7 +3533,7 @@ app.post('/v1/launch/stress-test', async (c) => {
 export default {
   fetch: app.fetch,
   async scheduled(_ctrl: ScheduledController, env: Env, ctx: ExecutionContext) {
-    const DASHBOARD_URL = 'https://sentinel-dashboard-3uy.pages.dev';
+    const DASHBOARD_URL = SENTINEL_DASHBOARD_URL;
 
     ctx.waitUntil(
       Promise.all([

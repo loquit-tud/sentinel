@@ -11,36 +11,11 @@
  * Designed for Twitter link previews and direct sharing.
  */
 
-import type { RiskTier, RiskBreakdown } from '../../../shared/types';
+import type { RiskTier } from '../../../shared/types';
+import { TIER_COLORS_CARD, BREAKDOWN_LABELS } from '../../../shared/badge-colors';
+import { barColor, escapeXml } from '../../../shared/badge-utils';
 
-const TIER_COLORS: Record<RiskTier, { bg: string; accent: string; label: string; emoji: string }> = {
-  safe:    { bg: '#0f2a1a', accent: '#22c55e', label: 'SAFE',    emoji: '🟢' },
-  caution: { bg: '#2a2510', accent: '#eab308', label: 'CAUTION', emoji: '🟡' },
-  danger:  { bg: '#2a1010', accent: '#ef4444', label: 'DANGER',  emoji: '🟠' },
-  rug:     { bg: '#2a0a0a', accent: '#991b1b', label: 'CRITICAL RISK', emoji: '🔴' },
-};
-
-const BREAKDOWN_LABELS: Record<keyof RiskBreakdown, string> = {
-  honeypot: 'Honeypot',
-  lpLocked: 'LP Lock',
-  mintAuthority: 'Mint Auth',
-  freezeAuthority: 'Freeze Auth',
-  topHolderPct: 'Distribution',
-  liquidityDepth: 'Liquidity',
-  volumeHealth: 'Volume',
-  creatorReputation: 'Creator Rep',
-};
-
-function barColor(value: number): string {
-  if (value >= 70) return '#22c55e';
-  if (value >= 40) return '#eab308';
-  if (value >= 10) return '#ef4444';
-  return '#991b1b';
-}
-
-function escapeXml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+const TIER_COLORS = TIER_COLORS_CARD;
 
 export function renderShareCardSVG(
   score: number,

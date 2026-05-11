@@ -10,22 +10,10 @@
  */
 
 import type { RiskTier } from '../../../shared/types';
+import { TIER_COLORS_EMBED } from '../../../shared/badge-colors';
+import { escapeHtml } from '../../../shared/badge-utils';
 
-const TIER_COLORS: Record<RiskTier, { bg: string; ring: string; label: string; emoji: string }> = {
-  safe:    { bg: '#16a34a', ring: 'rgba(34,197,94,0.4)',  label: 'SAFE',     emoji: '🟢' },
-  caution: { bg: '#ca8a04', ring: 'rgba(234,179,8,0.4)',  label: 'CAUTION',  emoji: '🟡' },
-  danger:  { bg: '#dc2626', ring: 'rgba(239,68,68,0.4)',  label: 'DANGER',   emoji: '🟠' },
-  rug:     { bg: '#7f1d1d', ring: 'rgba(153,27,27,0.4)',  label: 'CRITICAL RISK', emoji: '🔴' },
-};
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+const TIER_COLORS = TIER_COLORS_EMBED;
 
 export interface EmbedParams {
   mint: string;
