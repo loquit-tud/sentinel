@@ -129,8 +129,8 @@ function buildFallback(score: RiskScore, tokenName?: string): RiskExplanation {
 
   if (score.tier === 'rug') {
     return {
-      why: `${name} has been flagged as a rug — honeypot or critical security failure detected.`,
-      pattern: 'Confirmed rug or honeypot',
+      why: `${name} has been flagged as a critical-risk token — honeypot or critical security failure detected.`,
+      pattern: 'Confirmed critical-risk or honeypot pattern',
       action: 'Do not interact with this token under any circumstances.',
       confidence: 'high',
       generatedAt: Date.now(),
@@ -149,7 +149,7 @@ function buildFallback(score: RiskScore, tokenName?: string): RiskExplanation {
     return {
       why: `${name} scores ${score.score}/100 due to ${issues}, indicating high probability of loss.`,
       pattern: weakest.includes('active mint authority') ? 'Mint risk — creator can inflate supply' :
-               weakest.includes('unlocked LP') ? 'Liquidity rug risk — LP can be removed' :
+               weakest.includes('unlocked LP') ? 'Liquidity critical risk — LP can be removed' :
                'Multiple compounding risk factors',
       action: 'Avoid trading. Wait for LP lock and mint authority revocation.',
       confidence,

@@ -16,7 +16,7 @@ const TIER_COLORS: Record<RiskTier, { bg: string; accent: string; label: string;
   safe:    { bg: '#0f2a1a', accent: '#22c55e', label: 'TRUSTED',    emoji: '🟢' },
   caution: { bg: '#2a2510', accent: '#eab308', label: 'MIXED',      emoji: '🟡' },
   danger:  { bg: '#2a1010', accent: '#ef4444', label: 'SUSPICIOUS', emoji: '🟠' },
-  rug:     { bg: '#2a0a0a', accent: '#991b1b', label: 'RUGGER',     emoji: '🔴' },
+  rug:     { bg: '#2a0a0a', accent: '#991b1b', label: 'CRITICAL RISK',     emoji: '🔴' },
 };
 
 function barColor(value: number): string {
@@ -71,7 +71,7 @@ export function renderCreatorCardSVG(profile: CreatorProfile): string {
       const col = barColor(sc);
       const rugBadge = t.rugged
         ? `<rect x="880" y="${y - 12}" width="60" height="20" rx="4" fill="#991b1b" opacity="0.3"/>
-           <text x="910" y="${y + 2}" font-family="monospace" font-size="11" fill="#ef4444" text-anchor="middle" font-weight="bold">RUG</text>`
+          <text x="910" y="${y + 2}" font-family="monospace" font-size="11" fill="#ef4444" text-anchor="middle" font-weight="bold">RISK</text>`
         : '';
       return `
         <g>
@@ -141,7 +141,7 @@ export function renderCreatorCardSVG(profile: CreatorProfile): string {
 
   <rect x="172" y="454" width="120" height="72" rx="10" fill="rgba(239,68,68,0.05)" stroke="rgba(239,68,68,0.15)" stroke-width="1"/>
   <text x="232" y="484" font-family="system-ui,sans-serif" font-size="28" fill="#ef4444" text-anchor="middle" font-weight="bold">${ruggedCount}</text>
-  <text x="232" y="506" font-family="system-ui,sans-serif" font-size="11" fill="#ef4444" text-anchor="middle" opacity="0.7">Rugged</text>
+  <text x="232" y="506" font-family="system-ui,sans-serif" font-size="11" fill="#ef4444" text-anchor="middle" opacity="0.7">Critical</text>
 
   <!-- Divider -->
   <line x1="440" y1="100" x2="440" y2="550" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>

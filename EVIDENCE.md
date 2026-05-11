@@ -146,7 +146,7 @@ The cron runs every 15 minutes via `wrangler.toml` `triggers.crons = ["*/15 * * 
 
 | Claim | Proof |
 |---|---|
-| 8-signal risk engine | [worker/src/risk/engine.ts](worker/src/risk/engine.ts) + 102 unit tests in `worker/test/` |
+| 8-signal risk engine | [worker/src/risk/engine.ts](worker/src/risk/engine.ts) + 114 tests in `worker/tests/` |
 | **32-min baseline-to-alert window on live catch** | Section 5 above — `jkGKKj3Min…BAGS` mint, Apr 22 2026 |
 | Cron scanner every 15 min | [wrangler.toml](worker/wrangler.toml) `triggers.crons = ["*/15 * * * *"]` |
 | Multi-source data (no single point of failure) | 4 sources (RugCheck, Helius, Birdeye, Bags) in parallel `Promise.all` |
@@ -154,6 +154,20 @@ The cron runs every 15 minutes via `wrangler.toml` `triggers.crons = ["*/15 * * 
 | Partner REST integration | [worker/src/partner/bags-partner.ts](worker/src/partner/bags-partner.ts) — 4 Bags partner endpoints consumed |
 | Code-split dashboard | Main bundle 653 KB / 196 KB gzip; 13 lazy chunks (5-20 KB) |
 | Security: CORS whitelist, rate limits | [worker/src/index.ts](worker/src/index.ts) — 60 req/min/IP `/v1/risk/*`, 120 `/v1/embed/*` |
+
+### 6.1 Reliability Hardening (2026-05-11)
+
+- Added direct false-positive guardrail tests for:
+  - source-health outage suppression in LP drain scanner
+  - minimum lead-time enforcement in pre-rug catcher
+  - DBC drain threshold + baseline validation
+- Added scheduled cron integration tests for mass-drain guard behavior:
+  - if 3+ critical drains occur in one cycle, channel broadcast is suppressed
+  - subscriber notifications remain enabled
+
+Reference tests:
+- [worker/tests/detection-hardening.test.ts](worker/tests/detection-hardening.test.ts)
+- [worker/tests/scheduled-cron.test.ts](worker/tests/scheduled-cron.test.ts)
 
 ---
 
@@ -165,4 +179,4 @@ The cron runs every 15 minutes via `wrangler.toml` `triggers.crons = ["*/15 * * 
 
 ---
 
-**Last updated**: 2026-04-21 · Regenerate this file: `npx tsx scripts/scan-top-tokens.ts` then update sections 2 & 4 with fresh numbers.
+**Last updated**: 2026-05-11 · Regenerate this file: `npx tsx scripts/scan-top-tokens.ts` then update sections 2 & 4 with fresh numbers.

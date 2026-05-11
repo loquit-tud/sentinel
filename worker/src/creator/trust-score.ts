@@ -161,8 +161,8 @@ function deriveFlags(signals: CreatorTrustSignals, profile: CreatorProfile): str
   const flags: string[] = [];
 
   if (signals.serialLauncher) flags.push('⚡ Serial launcher (5+ tokens in 30 days)');
-  if (signals.rugRatio >= 0.5) flags.push('⛔ Majority of tokens rugged');
-  else if (signals.rugRatio >= 0.25) flags.push('🔴 High rug ratio (25%+)');
+  if (signals.rugRatio >= 0.5) flags.push('⛔ Majority of tokens reached critical-risk tier');
+  else if (signals.rugRatio >= 0.25) flags.push('🔴 High critical-risk ratio (25%+)');
   if (signals.lpRemovalCount >= 3) flags.push('💧 Multiple LP removals detected');
   else if (signals.lpRemovalCount >= 1) flags.push('⚠️ LP removal detected');
   if (signals.mintAuthorityActive >= 3) flags.push('🔑 Mint authority active on multiple tokens');
@@ -217,8 +217,8 @@ function generateVerdict(score: number, signals: CreatorTrustSignals, flags: str
   if (score >= 40) return 'Mixed track record. Exercise caution and verify each token independently.';
   if (score >= 20) {
     if (signals.serialLauncher) return 'Serial launcher with concerning patterns. High likelihood of pump-and-dump behavior.';
-    if (signals.rugRatio >= 0.5) return 'Majority of tokens rugged. Avoid this creator.';
+    if (signals.rugRatio >= 0.5) return 'Majority of tokens reached critical-risk tier. Avoid this creator.';
     return 'Poor track record. Multiple risk signals detected.';
   }
-  return 'Extremely high risk creator. History shows repeated rugs and predatory behavior.';
+  return 'Extremely high risk creator. History shows repeated critical-risk events and predatory behavior.';
 }

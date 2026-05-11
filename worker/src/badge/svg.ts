@@ -13,7 +13,7 @@ const TIER_COLORS: Record<RiskTier, { bg: string; text: string; label: string }>
   safe:    { bg: '#16a34a', text: '#ffffff', label: 'SAFE' },
   caution: { bg: '#ca8a04', text: '#ffffff', label: 'CAUTION' },
   danger:  { bg: '#dc2626', text: '#ffffff', label: 'DANGER' },
-  rug:     { bg: '#7f1d1d', text: '#ffffff', label: 'RUG RISK' },
+  rug:     { bg: '#7f1d1d', text: '#ffffff', label: 'CRITICAL RISK' },
 };
 
 export function renderBadgeSVG(score: number, tier: RiskTier, symbol: string): string {

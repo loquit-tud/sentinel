@@ -84,6 +84,10 @@ export interface CatchPayload {
   triggerSignals?: string[];
 }
 
+function formatTierTransitionForHumans(transition: string): string {
+  return transition.replace(/\brug\b/gi, 'critical risk');
+}
+
 export function buildCatchMessage(c: CatchPayload): string {
   const baselineAgeMin = Math.max(1, Math.round((c.caughtAt - c.initialAt) / 60_000));
   const short = `${c.mint.slice(0, 4)}…${c.mint.slice(-4)}`;
@@ -99,7 +103,7 @@ export function buildCatchMessage(c: CatchPayload): string {
     '',
     `🪙 <b>${c.name}</b> (<code>${short}</code>)`,
     `📉 Risk score: <b>${c.initialScore} → ${c.caughtScore}</b> (−${c.scoreDrop} pts)`,
-    `🔀 Tier: <b>${c.tierTransition}</b>`,
+    `🔀 Tier: <b>${formatTierTransitionForHumans(c.tierTransition)}</b>`,
     `⏱ Baseline age: <b>${baselineAgeMin} min</b> from last safe snapshot to this alert`,
     `📊 Signal: <b>${primarySignal}</b>`,
     ...(balanceSignal ? [`💧 ${balanceSignal}`] : []),

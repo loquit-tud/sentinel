@@ -140,9 +140,9 @@ export function buildLpDrainMessage(
   // not just the alert tier. A 100% drain saying "potential early-stage" is wrong.
   let statusLine: string;
   if (dropPct >= 95) {
-    statusLine = '🔴 <b>Pool fully drained — rug likely completed. Do not buy.</b>';
+    statusLine = '🔴 <b>Pool fully drained — critical risk event likely completed. Do not buy.</b>';
   } else if (dropPct >= 75) {
-    statusLine = '🔴 <b>Severe drain — likely rug in progress. Exit now.</b>';
+    statusLine = '🔴 <b>Severe drain — critical risk event likely in progress. Exit now.</b>';
   } else if (dropPct >= 40) {
     statusLine = '🟠 <b>Major liquidity loss — exit window may be closing.</b>';
   } else if (dropPct >= 20) {

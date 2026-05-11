@@ -217,7 +217,7 @@ function generateReasoning(
 
   if (derived.liquidityStress > 2.0) reasons.push(`volume ${derived.liquidityStress.toFixed(1)}x pool size — pool under stress`);
 
-  if (!input.lpLocked) reasons.push(`LP unlocked — rug risk elevated`);
+  if (!input.lpLocked) reasons.push(`LP unlocked — critical risk elevated`);
 
   // Phase-specific explanations
   switch (phase) {

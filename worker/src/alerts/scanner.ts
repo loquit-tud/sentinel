@@ -238,7 +238,7 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
                 tokenSymbol: token.symbol,
                 type: 'tier_change',
                 severity: degraded ? (current.tier === 'rug' ? 'critical' : 'warning') : 'info',
-                title: `${token.symbol} moved from ${prev.tier.toUpperCase()} to ${current.tier.toUpperCase()}`,
+                title: `${token.symbol} moved from ${tierLabel(prev.tier)} to ${tierLabel(current.tier)}`,
                 description: degraded
                   ? `Risk score dropped from ${prev.score} to ${current.score}. Review this token immediately.`
                   : `Risk score improved from ${prev.score} to ${current.score}.`,
@@ -379,7 +379,7 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
                   type: 'lp_drain',
                   severity,
                   title: `${severity === 'critical' ? '🚨' : '⚠️'} ${token.symbol} LP drain detected — -${dropPct.toFixed(1)}% liquidity${suffix}`,
-                  description: `Liquidity dropped from $${prev.liquidityUsd.toLocaleString()} to $${currentLiquidityUsd.toLocaleString()} (-${dropPct.toFixed(1)}%) since last scan.${downgradeForPartialData ? ' Some market signals were missing; treat as high-risk but verify before acting.' : ' Possible rug in progress — exit window closing.'}`,
+                  description: `Liquidity dropped from $${prev.liquidityUsd.toLocaleString()} to $${currentLiquidityUsd.toLocaleString()} (-${dropPct.toFixed(1)}%) since last scan.${downgradeForPartialData ? ' Some market signals were missing; treat as high-risk but verify before acting.' : ' Possible critical-risk event in progress — exit window closing.'}`,
                   previousScore: prev.score,
                   currentScore: current.score,
                   previousTier: prev.tier,
@@ -492,8 +492,8 @@ export async function runAlertScan(env: Env): Promise<RiskAlert[]> {
             tokenSymbol: token.symbol,
             type: 'new_danger',
             severity: current.tier === 'rug' ? 'critical' : 'warning',
-            title: `New token ${token.symbol} scored ${current.tier.toUpperCase()} (${current.score})`,
-            description: `First scan of ${token.name} shows ${current.tier}-level risk. Exercise extreme caution.`,
+            title: `New token ${token.symbol} scored ${tierLabel(current.tier)} (${current.score})`,
+            description: `First scan of ${token.name} shows ${tierLabel(current.tier).toLowerCase()} risk. Exercise extreme caution.`,
             previousScore: null,
             currentScore: current.score,
             previousTier: null,
@@ -669,5 +669,14 @@ function tierRank(tier: RiskTier): number {
     case 'caution': return 3;
     case 'danger': return 2;
     case 'rug': return 1;
+  }
+}
+
+function tierLabel(tier: RiskTier): string {
+  switch (tier) {
+    case 'safe': return 'SAFE';
+    case 'caution': return 'CAUTION';
+    case 'danger': return 'DANGER';
+    case 'rug': return 'CRITICAL';
   }
 }

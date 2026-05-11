@@ -39,16 +39,16 @@ describe('renderBadgeSVG', () => {
   it('uses dark red for rug tier', () => {
     const svg = renderBadgeSVG(5, 'rug', 'X');
     expect(svg).toContain('#7f1d1d');
-    expect(svg).toContain('RUG RISK');
+    expect(svg).toContain('CRITICAL RISK');
   });
 
   it('renders different score text for different tiers', () => {
     const safe = renderBadgeSVG(99, 'safe', 'A');
     const rug = renderBadgeSVG(1, 'rug', 'A');
-    // "99 · SAFE" vs "1 · RUG RISK" — different text content
+    // "99 · SAFE" vs "1 · CRITICAL RISK" — different text content
     expect(safe).toContain('SAFE');
-    expect(rug).toContain('RUG RISK');
-    expect(safe).not.toContain('RUG RISK');
+    expect(rug).toContain('CRITICAL RISK');
+    expect(safe).not.toContain('CRITICAL RISK');
   });
 
   it('has accessibility aria-label', () => {

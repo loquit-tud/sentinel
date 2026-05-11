@@ -960,16 +960,17 @@ function buildManualShareText(
   catchItem: Awaited<ReturnType<typeof getRecentCatches>>[number],
   shareUrl: string,
 ): string {
+  const transition = catchItem.tierTransition.replace(/\brug\b/gi, 'critical risk');
   const shortMint = `${catchItem.mint.slice(0, 6)}...${catchItem.mint.slice(-4)}`;
   const primarySignal = catchItem.triggerSignals?.[0]
     ?? (catchItem.reason === 'score_drop' ? 'Rapid score deterioration' : 'Tier crash detected');
   return [
-    `RUG ALERT: $${catchItem.symbol} ${catchItem.tierTransition}`,
+    `RISK ALERT: $${catchItem.symbol} ${transition}`,
     `Score ${catchItem.initialScore}->${catchItem.caughtScore} (-${catchItem.scoreDrop})`,
     primarySignal,
     `Mint ${shortMint}`,
     shareUrl,
-    '#Solana #BagsFM #Sentinel',
+    '@BagsApp #Solana #Sentinel',
   ].join('\n');
 }
 
@@ -1375,7 +1376,8 @@ app.get('/v1/watch/share/:mint/x', async (c) => {
     }
   }
 
-  const title = `RUG ALERT: $${symbol} ${tierTransition}`;
+  const softenedTransition = tierTransition.replace(/\brug\b/gi, 'critical risk');
+  const title = `RISK ALERT: $${symbol} ${softenedTransition}`;
   const description = scoreLine;
 
   const html = renderXOgShareHtml({

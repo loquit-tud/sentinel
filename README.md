@@ -54,6 +54,29 @@ The project has gone through 4 rounds of page pruning because we kept adding thi
 
 ---
 
+## Recent Updates (2026-05-11)
+
+### 1. Detection Hardening (false-positive control)
+- Added dedicated tests for scanner, pre-rug catcher, and DBC pool monitor guardrails.
+- Added scheduled cron orchestration tests for mass-drain suppression logic (prevents channel spam during source outages).
+- Coverage added in:
+   - `worker/tests/detection-hardening.test.ts`
+   - `worker/tests/scheduled-cron.test.ts`
+
+### 2. Alert Language Softening (public + Telegram)
+- Replaced severe "rug" wording in user-facing alert copy with neutral "critical risk" phrasing where applicable.
+- Updated scanner labels and notification text to reduce panic while preserving severity signals.
+
+### 3. Share/X Copy Updates
+- Updated generated catch text from "RUG ALERT" to "RISK ALERT".
+- Replaced `#BagsFM` with `@BagsApp` in generated share/tweet content.
+
+### 4. Validation
+- Worker test suite: **114/114 passing**.
+- Typecheck: `npx tsc --noEmit` passing.
+
+---
+
 ## Autonomous Agent Loop
 
 Sentinel is not a dashboard — it's an **autonomous agent** that runs continuously without human input.

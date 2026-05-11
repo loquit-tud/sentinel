@@ -42,7 +42,7 @@ describe('renderShareCardSVG', () => {
       ['safe', 'SAFE'],
       ['caution', 'CAUTION'],
       ['danger', 'DANGER'],
-      ['rug', 'RUG RISK'],
+      ['rug', 'CRITICAL RISK'],
     ];
     for (const [tier, label] of tiers) {
       const svg = renderShareCardSVG(50, tier, BASE_BREAKDOWN, 'T', 'mint123');

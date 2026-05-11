@@ -17,7 +17,7 @@ const TIER_COLORS: Record<RiskTier, { bg: string; accent: string; label: string;
   safe:    { bg: '#0f2a1a', accent: '#22c55e', label: 'SAFE',    emoji: '🟢' },
   caution: { bg: '#2a2510', accent: '#eab308', label: 'CAUTION', emoji: '🟡' },
   danger:  { bg: '#2a1010', accent: '#ef4444', label: 'DANGER',  emoji: '🟠' },
-  rug:     { bg: '#2a0a0a', accent: '#991b1b', label: 'RUG RISK', emoji: '🔴' },
+  rug:     { bg: '#2a0a0a', accent: '#991b1b', label: 'CRITICAL RISK', emoji: '🔴' },
 };
 
 const BREAKDOWN_LABELS: Record<keyof RiskBreakdown, string> = {

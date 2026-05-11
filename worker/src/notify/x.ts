@@ -44,24 +44,25 @@ function oauthNonce(size = 16): string {
 }
 
 function buildTweetText(payload: CatchPayload, dashboardUrl: string): string {
+  const transition = payload.tierTransition.replace(/\brug\b/gi, 'critical risk');
   const shortMint = `${payload.mint.slice(0, 6)}...${payload.mint.slice(-4)}`;
   const detailsUrl = `${dashboardUrl.replace(/\/$/, '')}/`;
   const primarySignal = payload.triggerSignals?.[0]
     ?? (payload.reason === 'score_drop' ? 'Rapid score deterioration' : 'Tier crash detected');
 
   const lines = [
-    `RUG ALERT: $${payload.symbol} ${payload.tierTransition}`,
+    `RISK ALERT: $${payload.symbol} ${transition}`,
     `Score ${payload.initialScore}->${payload.caughtScore} (-${payload.scoreDrop})`,
     `${primarySignal}`,
     `Mint ${shortMint}`,
     detailsUrl,
-    '#Solana #BagsFM #Sentinel',
+    '@BagsApp #Solana #Sentinel',
   ];
 
   let text = lines.join('\n');
   if (text.length <= 280) return text;
 
-  const firstLine = `RUG ALERT: $${payload.symbol} ${payload.tierTransition}`;
+  const firstLine = `RISK ALERT: $${payload.symbol} ${transition}`;
   const secondLine = `Score ${payload.initialScore}->${payload.caughtScore} (-${payload.scoreDrop})`;
   const thirdLine = `Mint ${shortMint}`;
   const compact = [firstLine, secondLine, thirdLine, detailsUrl, '#Solana #Sentinel'].join('\n');

@@ -15,7 +15,7 @@ const TIER_COLORS: Record<RiskTier, { bg: string; ring: string; label: string; e
   safe:    { bg: '#16a34a', ring: 'rgba(34,197,94,0.4)',  label: 'SAFE',     emoji: '🟢' },
   caution: { bg: '#ca8a04', ring: 'rgba(234,179,8,0.4)',  label: 'CAUTION',  emoji: '🟡' },
   danger:  { bg: '#dc2626', ring: 'rgba(239,68,68,0.4)',  label: 'DANGER',   emoji: '🟠' },
-  rug:     { bg: '#7f1d1d', ring: 'rgba(153,27,27,0.4)',  label: 'RUG RISK', emoji: '🔴' },
+  rug:     { bg: '#7f1d1d', ring: 'rgba(153,27,27,0.4)',  label: 'CRITICAL RISK', emoji: '🔴' },
 };
 
 function escapeHtml(s: string): string {
