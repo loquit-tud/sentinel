@@ -6,8 +6,8 @@ Sentinel is an autonomous risk agent for Bags tokens. It detects token deteriora
 
 ## Track
 
-Primary track: AI Agents  
-Secondary fit: Bags API, Creator Tools, Risk Intelligence, Social Finance
+- Primary track: AI Agents
+- Secondary fit: Bags API, Creator Tools, Risk Intelligence, Social Finance
 
 ## Project Links
 
@@ -64,22 +64,26 @@ Each suspicious event is classified into one of four decisions:
 
 ### ESCALATE
 
-High-confidence deterioration.  
+High-confidence deterioration.
+
 The agent sends an alert.
 
 ### WATCH
 
-Suspicious movement, but not enough confidence yet.  
+Suspicious movement, but not enough confidence yet.
+
 The agent waits for confirmation instead of creating noise.
 
 ### SUPPRESS
 
-Repeated or noisy alert.  
+Repeated or noisy alert.
+
 The agent suppresses it to avoid spamming users.
 
 ### DOWNGRADE
 
-Risk decreased or signal weakened.  
+Risk decreased or signal weakened.
+
 The agent takes no action.
 
 This decision layer makes Sentinel different from a basic scanner or alert feed.
