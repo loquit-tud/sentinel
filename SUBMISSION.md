@@ -19,7 +19,7 @@ Judge guide: [https://github.com/loquit-tud/sentinel/blob/master/JUDGE.md](https
 
 Health endpoint: [https://sentinel-api.apiworkersdev.workers.dev/health](https://sentinel-api.apiworkersdev.workers.dev/health)
 
-Agent Decision Log: [https://sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10](https://sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10)
+Agent Decision Log + Demo Suppression Example: [https://sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10&includeDemo=1](https://sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10&includeDemo=1)
 
 Live alert feed: [https://sentinel-api.apiworkersdev.workers.dev/v1/alerts/feed?format=json](https://sentinel-api.apiworkersdev.workers.dev/v1/alerts/feed?format=json)
 
@@ -138,7 +138,7 @@ Recommended validation flow:
 
 1. Open the live dashboard.
 2. Check the health endpoint.
-3. Inspect the Agent Decision Log.
+3. Inspect the Agent Decision Log + Demo Suppression Example.
 4. Inspect live alerts.
 5. Inspect confirmed catches.
 6. Open the Telegram alert channel.
@@ -211,7 +211,7 @@ Recommended demo order:
 
 1. Show the dashboard.
 2. Show the live health endpoint.
-3. Show the Agent Decision Log.
+3. Show the Agent Decision Log + Demo Suppression Example.
 4. Show a confirmed catch.
 5. Explain the agent decision.
 6. Show suppressed repeat or noise handling.
@@ -286,7 +286,7 @@ DOWNGRADE means the risk weakened.
 
 Sentinel combines liquidity movement, holder concentration, token authority risk, volume health, creator reputation, and data-source confidence. It separates risk score from confidence so missing data is not treated as neutral-safe.
 
-The project is live with a public dashboard, API, Agent Decision Log endpoint, live alert feed, confirmed catch evidence, Telegram alerts, Bags-native integration, and a Bags-launched project token.
+The project is live with a public dashboard, API, Agent Decision Log endpoint (with a clearly labeled synthetic suppression demo entry), live alert feed, confirmed catch evidence, Telegram alerts, Bags-native integration, and a Bags-launched project token.
 
 The goal is simple: help Bags traders and creators avoid blind spots by detecting token deterioration earlier, explaining why it matters, and making alerts actionable instead of noisy.
 
@@ -296,7 +296,7 @@ Sentinel - Autonomous Risk Agent for Bags Tokens
 
 ## Video Description
 
-Sentinel monitors Bags tokens for early deterioration, explains the evidence, suppresses repeated alert noise, and sends actionable Telegram warnings. This demo shows the live dashboard, health endpoint, Agent Decision Log, confirmed catch evidence, and Bags-native integration.
+Sentinel monitors Bags tokens for early deterioration, explains the evidence, suppresses repeated alert noise, and sends actionable Telegram warnings. This demo shows the live dashboard, health endpoint, Agent Decision Log + Demo Suppression Example, confirmed catch evidence, and Bags-native integration.
 
 ## Final Pre-Submission Check
 

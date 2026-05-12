@@ -47,9 +47,9 @@ What to look for:
 - timestamp
 - repeat suppression metrics in debug output
 
-### 4. Inspect agent decisions
+### 4. Inspect agent decisions (includes demo suppression example)
 
-[https://sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10](https://sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10)
+[https://sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10&includeDemo=1](https://sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10&includeDemo=1)
 
 What to look for:
 
@@ -58,6 +58,7 @@ What to look for:
 - reason
 - next action
 - suppressed repeats
+- one synthetic SUPPRESS example clearly labeled as demo
 
 ### 5. Inspect confirmed evidence
 

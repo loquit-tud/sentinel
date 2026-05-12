@@ -18,8 +18,8 @@ Full walkthrough: see `JUDGE.md`.
    [sentinel-api.apiworkersdev.workers.dev/health](https://sentinel-api.apiworkersdev.workers.dev/health)
 3. **Live Alert Feed**
    [sentinel-api.apiworkersdev.workers.dev/v1/alerts/feed?format=json](https://sentinel-api.apiworkersdev.workers.dev/v1/alerts/feed?format=json)
-4. **Agent Decision Log**
-   [sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10](https://sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10)
+4. **Agent Decision Log + Demo Suppression Example**
+   [sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10&includeDemo=1](https://sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10&includeDemo=1)
 5. **Confirmed Catch Evidence**
    [sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=10](https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=10)
 6. **Bags Integration Proof**
