@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { RiskAlert, AlertSeverity, AlertType, RiskTier } from '../../../shared/types';
+import type { RiskAlert, AlertSeverity, AlertType, RiskTier, AgentDecisionLog } from '../../../shared/types';
 import { TierBadge } from '../components/RiskDisplay';
-import { SENTINEL_API_ORIGIN, fetchAlertFeed, triggerAlertScan, resolveTelegramChatId, subscribeAlerts, unsubscribeAlerts, fetchSubscription, fetchTelegramBotInfo, fetchAlertSubscriberCount, fetchAlertDebug } from '../api';
+import { SENTINEL_API_ORIGIN, fetchAlertFeed, triggerAlertScan, resolveTelegramChatId, subscribeAlerts, unsubscribeAlerts, fetchSubscription, fetchTelegramBotInfo, fetchAlertSubscriberCount, fetchAlertDebug, fetchAgentDecisions } from '../api';
 import type { AlertDebugInfo } from '../api';
 
 const SEVERITY_STYLES: Record<AlertSeverity, { border: string; bg: string; icon: string }> = {
@@ -144,6 +144,7 @@ export function AlertFeedPage({
   const [botInfo, setBotInfo] = useState<{ username: string; deepLink: string } | null>(null);
   const [subscriberCount, setSubscriberCount] = useState<number | null>(null);
   const [alertDebug, setAlertDebug] = useState<AlertDebugInfo | null>(null);
+  const [agentDecisions, setAgentDecisions] = useState<AgentDecisionLog[]>([]);
 
   useEffect(() => {
     fetchTelegramBotInfo().then(setBotInfo).catch(() => {});
@@ -153,12 +154,13 @@ export function AlertFeedPage({
   const loadFeed = useCallback(() => {
     setLoading(true);
     setError(null);
-    Promise.all([fetchAlertFeed(), fetchAlertDebug()])
-      .then(([feed, debug]) => {
+    Promise.all([fetchAlertFeed(), fetchAlertDebug(), fetchAgentDecisions(10)])
+      .then(([feed, debug, decisions]) => {
         setAlerts(feed.alerts);
         setScannedTokens(feed.scannedTokens);
         setLastScan(feed.lastScanAt);
         setAlertDebug(debug);
+        setAgentDecisions(decisions);
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -232,6 +234,7 @@ export function AlertFeedPage({
 
   const criticalCount = alerts.filter((a) => a.severity === 'critical').length;
   const warningCount = alerts.filter((a) => a.severity === 'warning').length;
+  const suppressedRepeats = agentDecisions.reduce((sum, d) => sum + (d.suppressedRepeats ?? 0), 0);
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
@@ -442,6 +445,83 @@ export function AlertFeedPage({
             <span className="text-sentinel-caution font-medium">{warningCount} warnings</span>
           </>
         )}
+        {suppressedRepeats > 0 && (
+          <>
+            <span className="text-gray-700">·</span>
+            <span className="text-gray-500">suppressed repeats: {suppressedRepeats}</span>
+          </>
+        )}
+      </div>
+
+      {/* Agent Decision Log */}
+      <div className="p-4 rounded-xl border border-sentinel-border/60 bg-black/20 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-white">Sentinel Agent Decision Log</h3>
+            <p className="text-xs text-gray-500 mt-1">
+              Every suspicious token event is classified before it becomes an alert.
+            </p>
+          </div>
+          <a
+            href={`${SENTINEL_API_ORIGIN}/v1/agent/decisions?limit=10`}
+            target="_blank"
+            rel="noopener"
+            className="text-[11px] text-sentinel-accent hover:underline"
+          >
+            raw json ↗
+          </a>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+          <div className="rounded-lg border border-sentinel-danger/30 bg-sentinel-danger/5 px-3 py-2">
+            <div className="text-white font-semibold">ESCALATE</div>
+            <div className="text-gray-500">High-confidence deterioration</div>
+          </div>
+          <div className="rounded-lg border border-sentinel-caution/30 bg-sentinel-caution/5 px-3 py-2">
+            <div className="text-white font-semibold">WATCH</div>
+            <div className="text-gray-500">Suspicious movement</div>
+          </div>
+          <div className="rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2">
+            <div className="text-white font-semibold">SUPPRESS</div>
+            <div className="text-gray-500">Repeat/noisy event</div>
+          </div>
+          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
+            <div className="text-white font-semibold">DOWNGRADE</div>
+            <div className="text-gray-500">Risk weakened</div>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto rounded-lg border border-sentinel-border/50">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-950/60 text-gray-500">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium">Token</th>
+                <th className="px-3 py-2 text-left font-medium">Decision</th>
+                <th className="px-3 py-2 text-left font-medium">Confidence</th>
+                <th className="px-3 py-2 text-left font-medium">Reason</th>
+                <th className="px-3 py-2 text-left font-medium">Next action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {agentDecisions.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-3 py-4 text-gray-500">No decisions yet.</td>
+                </tr>
+              )}
+              {agentDecisions.map((decision) => (
+                <tr key={decision.id} className="border-t border-sentinel-border/40">
+                  <td className="px-3 py-2 text-gray-300 font-mono">
+                    {decision.tokenSymbol ?? '—'}
+                  </td>
+                  <td className="px-3 py-2 text-white">{decision.decision}</td>
+                  <td className="px-3 py-2 text-gray-300">{Math.round(decision.confidence * 100)}%</td>
+                  <td className="px-3 py-2 text-gray-400">{decision.reason}</td>
+                  <td className="px-3 py-2 text-gray-300">{decision.nextAction}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Alert quality + calibration */}

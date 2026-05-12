@@ -4,7 +4,7 @@ import { computeRiskScore } from './risk/engine';
 import { fetchTopTokens, fetchRecentLaunches } from './feed/bags';
 import { tierFromScore } from '../../shared/types';
 import { cachedCompute } from '../../shared/cache-helpers';
-import type { TokenFeedItem, RiskScore } from '../../shared/types';
+import type { TokenFeedItem, RiskScore, AgentDecisionLog, AgentDecision, AgentNextAction, AgentReasonCode } from '../../shared/types';
 import { SENTINEL_DASHBOARD_URL } from '../../shared/constants';
 import { fetchClaimablePositions, fetchClaimTransactions } from './fees/bags-fees';
 import { fetchSmartFees } from './fees/smart-fees';
@@ -42,6 +42,7 @@ import { computeSurvival } from './launch/survival';
 import type { SurvivalInput } from './launch/survival';
 import { generateRiskExplanation } from './risk/explain';
 import { hasXCredentials, postCatchToX } from './notify/x';
+import type { PreRugCatch } from './watch/pre-rug-catcher';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 
@@ -424,6 +425,67 @@ app.get('/stats', async (c) => {
 
 // ── Pre-Rug Watch (evidence chain) ───────────────────────
 
+function mapCatchToAgentDecision(caught: PreRugCatch): AgentDecisionLog {
+  const action = caught?.agentDecision?.action as string | undefined;
+  const level = caught?.agentDecision?.alertLevel as string | undefined;
+  const confidencePct = Number(caught?.agentDecision?.confidence ?? 50);
+  const confidence = Math.max(0, Math.min(1, confidencePct / 100));
+
+  let decision: AgentDecision = 'WATCH';
+  let nextAction: AgentNextAction = 'RECHECK_NEXT_CYCLE';
+  let reasonCodes: AgentReasonCode[] = ['VOLUME_ANOMALY'];
+
+  if (action === 'escalate' || action === 'telegram_alert') {
+    decision = 'ESCALATE';
+    nextAction = 'SEND_ALERT';
+  } else if (action === 'log_alert') {
+    decision = 'SUPPRESS';
+    nextAction = 'SUPPRESS_REPEAT';
+    reasonCodes = ['REPEAT_ALERT'];
+  } else if (action === 'monitor' && level === 'none') {
+    decision = 'DOWNGRADE';
+    nextAction = 'NO_ACTION';
+    reasonCodes = ['RISK_DECREASED'];
+  }
+
+  const triggerSignals = Array.isArray(caught?.triggerSignals) ? caught.triggerSignals as string[] : [];
+  if (triggerSignals.some((s) => /liquid/i.test(s))) {
+    reasonCodes = ['LIQUIDITY_COLLAPSE'];
+  }
+  if (caught?.creatorPrevRug === true) {
+    reasonCodes = Array.from(new Set<AgentReasonCode>([...reasonCodes, 'CREATOR_RISK']));
+  }
+
+  const caughtAt = Number(caught?.caughtAt ?? Date.now());
+  const dt = new Date(caughtAt);
+  const cycleId = `cycle_${dt.toISOString().slice(0, 13).replace(/[-T:]/g, '_')}00`;
+
+  return {
+    id: `decision_${String(caught?.mint ?? 'unknown').slice(0, 8)}_${caughtAt}`,
+    cycleId,
+    timestamp: new Date(caughtAt).toISOString(),
+    tokenMint: String(caught?.mint ?? ''),
+    tokenSymbol: caught?.symbol,
+    tokenName: caught?.name,
+    decision,
+    confidence,
+    riskScoreBefore: typeof caught?.initialScore === 'number' ? caught.initialScore : undefined,
+    riskScoreAfter: Number(caught?.caughtScore ?? 0),
+    scoreRange: {
+      min: Math.max(0, Number(caught?.caughtScore ?? 0) - 10),
+      max: Math.min(100, Number(caught?.caughtScore ?? 0) + 10),
+    },
+    reasonCodes,
+    reason: String(caught?.agentDecision?.reasoning ?? triggerSignals[0] ?? 'Autonomous risk policy decision based on score deterioration.'),
+    nextAction,
+    missingSources: [],
+    suppressedRepeats: decision === 'SUPPRESS' ? 1 : 0,
+    evidence: {
+      creatorTrustScore: caught?.creatorPrevRug ? 0 : undefined,
+    },
+  };
+}
+
 app.get('/v1/watch/catches', async (c) => {
   const kv = c.env.SENTINEL_KV;
   if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
@@ -472,6 +534,15 @@ app.get('/v1/watch/catches', async (c) => {
   }
 
   return c.json({ ok: true, data });
+});
+
+app.get('/v1/agent/decisions', async (c) => {
+  const kv = c.env.SENTINEL_KV;
+  if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
+  const limit = Math.min(Number(c.req.query('limit') ?? 10), 50);
+  const catches = await getRecentCatches(kv, limit);
+  const decisions = catches.map(mapCatchToAgentDecision);
+  return c.json({ ok: true, data: { decisions, count: decisions.length, generatedAt: Date.now() } });
 });
 
 // ── Demo Viewer (live, proof-first) ──────────────────────

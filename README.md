@@ -1,5 +1,36 @@
 # Sentinel ⬡
 
+## Sentinel - Autonomous Risk Agent for Bags Tokens
+
+Sentinel detects deteriorating Bags tokens early, explains why, suppresses alert noise, and alerts before generic tools fully classify the collapse.
+
+### Judge Quick Validation
+
+You can validate the project in under 5 minutes:
+
+Full walkthrough: see `JUDGE.md`.
+
+1. **Live Dashboard**
+   [sentinel-dashboard-3uy.pages.dev](https://sentinel-dashboard-3uy.pages.dev/)
+2. **Health Endpoint**
+   [sentinel-api.apiworkersdev.workers.dev/health](https://sentinel-api.apiworkersdev.workers.dev/health)
+3. **Live Alert Feed**
+   [sentinel-api.apiworkersdev.workers.dev/v1/alerts/feed?format=json](https://sentinel-api.apiworkersdev.workers.dev/v1/alerts/feed?format=json)
+4. **Agent Decision Log**
+   [sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10](https://sentinel-api.apiworkersdev.workers.dev/v1/agent/decisions?limit=10)
+5. **Confirmed Catch Evidence**
+   [sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=10](https://sentinel-api.apiworkersdev.workers.dev/v1/watch/catches?limit=10)
+6. **Bags Integration Proof**
+   $SENT launch + Bags-native monitoring and fee context documented in this repo.
+7. **Tests**
+   Typecheck and test suite are included and passing in CI.
+
+### Core Claim
+
+Most risk tools tell users after a token has already collapsed.
+
+Sentinel watches Bags tokens continuously and detects deterioration patterns early using multi-source signals: liquidity movement, holder concentration, creator behavior, volume health, token authority risk, and source confidence.
+
 > **Don't trade blind.**
 
 AI risk intelligence + autonomous risk deterioration watcher for [Bags](https://bags.fm) traders & creators.

@@ -70,6 +70,57 @@ export interface AgentPolicyInput {
   };
 }
 
+// ── Agent Decision Log ───────────────────────────────────
+
+export type AgentDecision = 'ESCALATE' | 'WATCH' | 'SUPPRESS' | 'DOWNGRADE';
+
+export type AgentReasonCode =
+  | 'LIQUIDITY_COLLAPSE'
+  | 'HOLDER_CONCENTRATION'
+  | 'VOLUME_ANOMALY'
+  | 'CREATOR_RISK'
+  | 'AUTHORITY_RISK'
+  | 'REPEAT_ALERT'
+  | 'LOW_CONFIDENCE'
+  | 'SOURCE_OUTAGE'
+  | 'RISK_DECREASED';
+
+export type AgentNextAction =
+  | 'SEND_ALERT'
+  | 'MONITOR_1H'
+  | 'RECHECK_NEXT_CYCLE'
+  | 'SUPPRESS_REPEAT'
+  | 'NO_ACTION';
+
+export interface AgentDecisionLog {
+  id: string;
+  cycleId: string;
+  timestamp: string;
+  tokenMint: string;
+  tokenSymbol?: string;
+  tokenName?: string;
+  decision: AgentDecision;
+  confidence: number; // 0.0 - 1.0
+  riskScoreBefore?: number;
+  riskScoreAfter: number;
+  scoreRange?: {
+    min: number;
+    max: number;
+  };
+  reasonCodes: AgentReasonCode[];
+  reason: string;
+  nextAction: AgentNextAction;
+  missingSources: string[];
+  suppressedRepeats?: number;
+  evidence?: {
+    liquidityDropPct?: number;
+    holderConcentrationPct?: number;
+    volumeChangePct?: number;
+    rugcheckRugged?: boolean;
+    creatorTrustScore?: number;
+  };
+}
+
 // ── Buy Guard ─────────────────────────────────────────────
 
 export type BuyVerdict = 'safe' | 'caution' | 'avoid';

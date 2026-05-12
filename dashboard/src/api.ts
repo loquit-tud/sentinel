@@ -1,4 +1,4 @@
-import type { RiskScore, TokenFeedItem, FeeSnapshot, SmartFeeSnapshot, MonitoredWallet, PendingClaim, ApiResponse, AlertFeed, RiskAlert, CreatorProfile } from '../../shared/types';
+import type { RiskScore, TokenFeedItem, FeeSnapshot, SmartFeeSnapshot, MonitoredWallet, PendingClaim, ApiResponse, AlertFeed, RiskAlert, CreatorProfile, AgentDecisionLog } from '../../shared/types';
 
 const API_URL = import.meta.env.VITE_API_URL ?? (
   import.meta.env.DEV
@@ -576,6 +576,17 @@ export async function fetchAlertDebug(): Promise<AlertDebugInfo | null> {
     return body.data;
   } catch {
     return null;
+  }
+}
+
+export async function fetchAgentDecisions(limit = 10): Promise<AgentDecisionLog[]> {
+  try {
+    const res = await fetch(`${BASE}/agent/decisions?limit=${Math.min(limit, 50)}`);
+    const body: ApiResponse<{ decisions: AgentDecisionLog[] }> = await res.json();
+    if (!body.ok || !body.data) return [];
+    return body.data.decisions ?? [];
+  } catch {
+    return [];
   }
 }
 
