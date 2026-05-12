@@ -114,6 +114,9 @@ export interface AgentDecisionLog {
   suppressedRepeats?: number;
   evidence?: {
     liquidityDropPct?: number;
+    scoreDrop?: number;
+    riskScoreBefore?: number;
+    riskScoreAfter?: number;
     holderConcentrationPct?: number;
     volumeChangePct?: number;
     rugcheckRugged?: boolean;

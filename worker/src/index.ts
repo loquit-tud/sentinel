@@ -429,7 +429,7 @@ function mapCatchToAgentDecision(caught: PreRugCatch): AgentDecisionLog {
   const action = caught?.agentDecision?.action as string | undefined;
   const level = caught?.agentDecision?.alertLevel as string | undefined;
   const confidencePct = Number(caught?.agentDecision?.confidence ?? 50);
-  const confidence = Math.max(0, Math.min(1, confidencePct / 100));
+  let confidence = Math.max(0, Math.min(1, confidencePct / 100));
 
   let decision: AgentDecision = 'WATCH';
   let nextAction: AgentNextAction = 'RECHECK_NEXT_CYCLE';
@@ -449,6 +449,22 @@ function mapCatchToAgentDecision(caught: PreRugCatch): AgentDecisionLog {
   }
 
   const triggerSignals = Array.isArray(caught?.triggerSignals) ? caught.triggerSignals as string[] : [];
+  const signalBlob = triggerSignals.join(' | ');
+  const liquidityDropMatch = signalBlob.match(/(?:liquid(?:ity)?[^\d]{0,24})(\d{1,3})%/i);
+  const liquidityDropPct = liquidityDropMatch ? Number(liquidityDropMatch[1]) : undefined;
+  const riskScoreBefore = typeof caught?.initialScore === 'number' ? caught.initialScore : undefined;
+  const riskScoreAfter = Number(caught?.caughtScore ?? 0);
+  const scoreDrop = typeof caught?.scoreDrop === 'number'
+    ? caught.scoreDrop
+    : (typeof riskScoreBefore === 'number' ? riskScoreBefore - riskScoreAfter : undefined);
+
+  // Hard override: catastrophic collapse should never remain WATCH in demo or API output.
+  if ((liquidityDropPct ?? 0) >= 90 && riskScoreAfter <= 30) {
+    decision = 'ESCALATE';
+    nextAction = 'SEND_ALERT';
+    confidence = Math.max(confidence, 0.75);
+    reasonCodes = ['LIQUIDITY_COLLAPSE'];
+  }
   if (triggerSignals.some((s) => /liquid/i.test(s))) {
     reasonCodes = ['LIQUIDITY_COLLAPSE'];
   }
@@ -469,11 +485,11 @@ function mapCatchToAgentDecision(caught: PreRugCatch): AgentDecisionLog {
     tokenName: caught?.name,
     decision,
     confidence,
-    riskScoreBefore: typeof caught?.initialScore === 'number' ? caught.initialScore : undefined,
-    riskScoreAfter: Number(caught?.caughtScore ?? 0),
+    riskScoreBefore,
+    riskScoreAfter,
     scoreRange: {
-      min: Math.max(0, Number(caught?.caughtScore ?? 0) - 10),
-      max: Math.min(100, Number(caught?.caughtScore ?? 0) + 10),
+      min: Math.max(0, riskScoreAfter - 10),
+      max: Math.min(100, riskScoreAfter + 10),
     },
     reasonCodes,
     reason: String(caught?.agentDecision?.reasoning ?? triggerSignals[0] ?? 'Autonomous risk policy decision based on score deterioration.'),
@@ -481,6 +497,10 @@ function mapCatchToAgentDecision(caught: PreRugCatch): AgentDecisionLog {
     missingSources: [],
     suppressedRepeats: decision === 'SUPPRESS' ? 1 : 0,
     evidence: {
+      liquidityDropPct,
+      scoreDrop,
+      riskScoreBefore,
+      riskScoreAfter,
       creatorTrustScore: caught?.creatorPrevRug ? 0 : undefined,
     },
   };
@@ -540,8 +560,32 @@ app.get('/v1/agent/decisions', async (c) => {
   const kv = c.env.SENTINEL_KV;
   if (!kv) return c.json({ ok: false, error: 'KV not configured' }, 500);
   const limit = Math.min(Number(c.req.query('limit') ?? 10), 50);
+  const includeDemo = c.req.query('includeDemo') === '1';
   const catches = await getRecentCatches(kv, limit);
   const decisions = catches.map(mapCatchToAgentDecision);
+  if (includeDemo && !decisions.some((d) => d.decision === 'SUPPRESS')) {
+    decisions.push({
+      id: `decision_demo_suppress_${Date.now()}`,
+      cycleId: `cycle_demo_${new Date().toISOString().slice(0, 13).replace(/[-T:]/g, '_')}00`,
+      timestamp: new Date().toISOString(),
+      tokenMint: 'DEMO',
+      tokenSymbol: 'DEMO',
+      tokenName: 'Demo Suppression Example',
+      decision: 'SUPPRESS',
+      confidence: 0.67,
+      riskScoreAfter: 44,
+      scoreRange: { min: 38, max: 55 },
+      reasonCodes: ['REPEAT_ALERT'],
+      reason: 'Synthetic example to illustrate repeat-alert suppression in the judge demo.',
+      nextAction: 'SUPPRESS_REPEAT',
+      missingSources: [],
+      suppressedRepeats: 7,
+      evidence: {
+        scoreDrop: 0,
+        riskScoreAfter: 44,
+      },
+    });
+  }
   return c.json({ ok: true, data: { decisions, count: decisions.length, generatedAt: Date.now() } });
 });
 

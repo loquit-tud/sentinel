@@ -4,6 +4,8 @@
 
 Sentinel detects deteriorating Bags tokens early, explains why, suppresses alert noise, and alerts before generic tools fully classify the collapse.
 
+For judges: start with the 2-minute verification flow below, then open `JUDGE.md` for the full validation path.
+
 ### Judge Quick Validation
 
 You can validate the project in under 5 minutes:
