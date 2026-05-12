@@ -459,7 +459,7 @@ function mapCatchToAgentDecision(caught: PreRugCatch): AgentDecisionLog {
     : (typeof riskScoreBefore === 'number' ? riskScoreBefore - riskScoreAfter : undefined);
 
   // Hard override: catastrophic collapse should never remain WATCH in demo or API output.
-  if ((liquidityDropPct ?? 0) >= 90 && riskScoreAfter <= 30) {
+  if (((liquidityDropPct ?? 0) >= 90 && riskScoreAfter <= 30) || ((scoreDrop ?? 0) >= 50 && riskScoreAfter <= 30)) {
     decision = 'ESCALATE';
     nextAction = 'SEND_ALERT';
     confidence = Math.max(confidence, 0.75);
@@ -498,7 +498,7 @@ function mapCatchToAgentDecision(caught: PreRugCatch): AgentDecisionLog {
     suppressedRepeats: decision === 'SUPPRESS' ? 1 : 0,
     evidence: {
       liquidityDropPct,
-      scoreDrop,
+      scoreDrop: scoreDrop ?? 0,
       riskScoreBefore,
       riskScoreAfter,
       creatorTrustScore: caught?.creatorPrevRug ? 0 : undefined,
@@ -586,7 +586,15 @@ app.get('/v1/agent/decisions', async (c) => {
       },
     });
   }
-  return c.json({ ok: true, data: { decisions, count: decisions.length, generatedAt: Date.now() } });
+  return c.json(
+    { ok: true, data: { decisions, count: decisions.length, generatedAt: Date.now() } },
+    200,
+    {
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0',
+    },
+  );
 });
 
 // ── Demo Viewer (live, proof-first) ──────────────────────
